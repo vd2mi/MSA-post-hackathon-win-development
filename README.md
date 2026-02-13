@@ -1,24 +1,27 @@
 # MSA — Market Sentiment Analyzer
 
-AI-powered stock analysis platform that combines technical indicators, market sentiment, and real-time news into a single actionable signal — built for speed, built for traders.
+AI-powered stock analysis platform that fuses real technical indicators, Wall Street analyst consensus, market sentiment, and live news into a single actionable signal via GPT-4o — built for speed, built for traders.
 
 ## What It Does
 
-- **Technical Analysis** — Calculates 50-day & 200-day Simple Moving Averages, detects Golden Cross / Death Cross signals
-- **Market Sentiment** — Pulls the CNN Fear & Greed Index in real time (falls back to Neutral if unavailable)
-- **News Intelligence** — Aggregates latest headlines from Yahoo Finance for any ticker
-- **GPT-4o Synthesis** — Fuses all data through a Senior Quant Analyst persona to produce an actionable insight + confidence score (0–100)
-- **5-Minute TTL Cache** — Repeat requests are served instantly, saving API costs and preventing rate limits
-- **Live Ticker Feed** — WebSocket-powered real-time price belt on the landing page via external data stream
+- **Technical Indicators** — RSI (14-day), MACD (12, 26, 9), 50-day & 200-day SMAs with Golden Cross / Death Cross detection. Combined into a 0–100 gauge score.
+- **Analyst Ratings** — Real Wall Street analyst breakdown (Strong Buy / Buy / Hold / Sell / Strong Sell) with weighted consensus score and semicircle gauge.
+- **1-Year Price Target** — Mean, high, and low analyst targets with current price positioning and upside/downside %.
+- **Live Price & Daily Change** — Current market price with real-time daily $ and % movement (green ▲ / red ▼).
+- **Market Sentiment** — CNN Fear & Greed Index scraped live (graceful Neutral fallback).
+- **News Intelligence** — Latest Yahoo Finance headlines per ticker.
+- **GPT-4o Synthesis** — All 6 data signals fed to a Senior Quant Analyst persona. Returns Buy / Hold / Sell / Watch with confidence score (0–100) and reasoning.
+- **5-Minute TTL Cache** — Repeat requests served instantly, saving API costs.
+- **Live Ticker Feed** — WebSocket-powered real-time price belt on the landing page.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | FastAPI, Uvicorn, Pydantic |
-| Data | yfinance (no rate limits), httpx, BeautifulSoup4 |
-| AI | OpenAI GPT-4o (strict JSON mode) |
-| Caching | cachetools TTLCache (in-memory, 5 min) |
+| Backend | Python, FastAPI, Uvicorn, Pydantic v2 |
+| Data Sources | yfinance (prices, news, analysts, targets), CNN (Fear & Greed), httpx, BeautifulSoup4 |
+| AI | OpenAI GPT-4o (strict JSON mode, temperature 0.4) |
+| Caching | cachetools TTLCache (in-memory, 5 min, 256 entries) |
 | Async | asyncio.gather + asyncio.to_thread for non-blocking I/O |
 | Frontend | Tailwind CSS, Chart.js, Three.js, GSAP |
 | Live Data | WebSocket (wss://fisi-production.up.railway.app) |
@@ -30,7 +33,7 @@ AI-powered stock analysis platform that combines technical indicators, market se
 |--------|------|-------------|
 | `GET` | `/` | Service info |
 | `GET` | `/health` | Health check + cache size |
-| `GET` | `/analyze?ticker=AAPL` | **Full pipeline** — SMA + Fear & Greed + News + GPT-4o (cached 5 min) |
+| `GET` | `/analyze?ticker=AAPL` | **Full pipeline** — SMAs + RSI + MACD + Analysts + Price Target + Fear & Greed + News + GPT-4o (cached 5 min) |
 | `GET` | `/sma?ticker=AAPL` | SMA data only |
 | `GET` | `/fear-greed` | CNN Fear & Greed Index |
 | `GET` | `/news?ticker=AAPL` | Yahoo Finance news headlines |
@@ -41,13 +44,30 @@ AI-powered stock analysis platform that combines technical indicators, market se
 
 ```
 MSA/
-├── app.py              # FastAPI application (all backend logic)
+├── app.py              # FastAPI backend (data pipeline, indicators, GPT integration)
 ├── index.html          # Landing page (Three.js animation, live ticker belt, stats)
-├── dashboard.html      # Analysis terminal (dynamic search, charts, GPT results)
+├── dashboard.html      # Analysis terminal (gauges, charts, GPT results, news)
 ├── requirements.txt    # Python dependencies
 ├── Dockerfile          # Hugging Face Spaces deployment
 ├── .env                # Local env vars (not committed)
 └── README.md
+```
+
+## Data Pipeline
+
+All data is fetched concurrently via `asyncio.gather` for minimum latency:
+
+```
+User enters ticker
+        │
+        ├─── yfinance: 1yr OHLCV → SMA 50/200, RSI-14, MACD
+        ├─── yfinance: analyst ratings (Strong Buy → Strong Sell)
+        ├─── yfinance: 1yr price targets + current price + daily change
+        ├─── CNN: Fear & Greed Index
+        └─── yfinance: news headlines
+                │
+                ▼
+        All signals → GPT-4o (strict JSON) → Buy/Hold/Sell/Watch + Confidence
 ```
 
 ## Environment Variables
@@ -85,7 +105,17 @@ Server starts on `http://localhost:7860`. Interactive docs at `/docs`.
 
 ## Frontend
 
-- **index.html** — Landing page with Three.js market wave animation, WebSocket-powered live ticker belt, and API health stats
-- **dashboard.html** — Analysis terminal where users enter any ticker and get full SMA + sentiment + GPT-4o breakdown with charts
+- **index.html** — Landing page with Three.js market wave, WebSocket live ticker belt, API health stats, and terminal-style feature cards
+- **dashboard.html** — Full analysis terminal with:
+  - Live price + daily change arrow
+  - AI recommendation badge (Buy/Sell/Watch/Hold)
+  - SMA crossover signal
+  - Technicals semicircle gauge (RSI + MACD)
+  - Analyst rating semicircle gauge with bar breakdown
+  - 1-year price target with range visualization
+  - Fear & Greed animated gauge
+  - Price action chart
+  - GPT-4o analysis card with confidence score
+  - Latest news headlines
 
 Both pages connect to the Hugging Face-hosted API at `https://vd2mi-msa.hf.space`.
