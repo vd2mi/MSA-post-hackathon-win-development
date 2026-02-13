@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSA | NVDA Terminal</title>
+    <title>MSA | Terminal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;500;700;900&display=swap" rel="stylesheet">
@@ -17,9 +17,9 @@
                         bg: '#050507',
                         panel: '#0e0e11',
                         border: '#1e1e24',
-                        bull: '#00ff88', // Green
-                        bear: '#ff0055', // Red
-                        warn: '#f59e0b', // Orange for Fear
+                        bull: '#00ff88',
+                        bear: '#ff0055',
+                        warn: '#f59e0b',
                     },
                     fontFamily: {
                         sans: ['Outfit', 'sans-serif'],
@@ -44,18 +44,26 @@
         }
         .glass-box:hover { border-color: rgba(255,255,255,0.1); }
 
-        /* Custom Gauge Animation */
         .gauge-circle {
             transition: stroke-dashoffset 1s ease-in-out, stroke 0.5s ease;
         }
 
-        /* Scrollbar */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #050507; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
         
         .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; opacity: 0; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .spinner {
+            border: 3px solid #1e1e24;
+            border-top: 3px solid #00ff88;
+            border-radius: 50%;
+            width: 20px; height: 20px;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="h-screen flex overflow-hidden selection:bg-bull selection:text-black font-sans">
@@ -71,128 +79,299 @@
                     <span class="text-xl">📊</span>
                     <span class="ml-3 text-sm font-bold hidden lg:block">Terminal</span>
                 </a>
-                <a href="#" class="flex items-center px-4 py-3 text-gray-500 hover:text-white hover:bg-white/5 rounded-lg transition">
-                    <span class="text-xl">📡</span>
-                    <span class="ml-3 text-sm font-bold hidden lg:block">Scanner</span>
+                <a href="index.html" class="flex items-center px-4 py-3 text-gray-500 hover:text-white hover:bg-white/5 rounded-lg transition">
+                    <span class="text-xl">🏠</span>
+                    <span class="ml-3 text-sm font-bold hidden lg:block">Home</span>
                 </a>
             </nav>
         </div>
         <div class="p-4">
             <div class="glass-box p-3 rounded text-[10px] text-gray-500 font-mono text-center lg:text-left">
-                <div class="mb-1">STATUS: <span class="text-bull">CONNECTED</span></div>
-                <div>API: v2.4.0</div>
+                <div class="mb-1">STATUS: <span class="text-bull" id="api-status">READY</span></div>
+                <div>API: v2.0.0</div>
             </div>
         </div>
     </aside>
 
     <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
         
-        <header class="h-16 border-b border-border bg-bg/80 backdrop-blur flex items-center justify-between px-6">
-            <h2 class="text-sm font-mono text-gray-400">MARKET STOCK ANALYZER // <span class="text-white">DASHBOARD</span></h2>
+        <header class="h-16 border-b border-border bg-bg/80 backdrop-blur flex items-center justify-between px-6 gap-4">
+            <form id="search-form" class="flex items-center gap-3 flex-1 max-w-md">
+                <div class="relative flex-1">
+                    <input 
+                        type="text" 
+                        id="ticker-input" 
+                        placeholder="Enter ticker (e.g. AAPL, TSLA, PLTR)" 
+                        maxlength="10"
+                        class="w-full bg-black/40 border border-border rounded-lg px-4 py-2 text-sm font-mono text-white placeholder-gray-600 focus:outline-none focus:border-bull/50 focus:shadow-[0_0_10px_rgba(0,255,136,0.1)] transition"
+                    >
+                </div>
+                <button type="submit" id="search-btn" class="bg-bull/10 border border-bull/30 text-bull px-5 py-2 rounded-lg text-sm font-bold hover:bg-bull/20 hover:shadow-glow-bull transition flex items-center gap-2">
+                    <span id="search-btn-text">Analyze</span>
+                    <span id="search-spinner" class="spinner hidden"></span>
+                </button>
+            </form>
             <div class="flex items-center gap-4">
-                <span class="w-2 h-2 rounded-full bg-bull animate-pulse"></span>
-                <span class="text-xs font-mono text-gray-500" id="timestamp-display">LOADING...</span>
+                <span class="w-2 h-2 rounded-full bg-bull animate-pulse" id="status-dot"></span>
+                <span class="text-xs font-mono text-gray-500" id="timestamp-display">WAITING FOR INPUT</span>
             </div>
         </header>
 
         <div class="flex-1 overflow-y-auto p-6">
             <div class="max-w-7xl mx-auto space-y-6">
 
-                <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
-                    <div class="md:col-span-8 glass-box p-6 rounded-xl relative overflow-hidden group animate-fade-in" style="animation-delay: 0.1s;">
-                        <div class="absolute top-0 right-0 p-6 opacity-10 font-black text-9xl text-white select-none pointer-events-none group-hover:scale-110 transition duration-700">NVDA</div>
-                        
-                        <div class="relative z-10 flex justify-between items-start">
-                            <div>
-                                <div class="flex items-center gap-3 mb-2">
-                                    <h1 class="text-5xl font-black text-white tracking-tight" id="ticker-symbol">NVDA</h1>
-                                    <span class="px-3 py-1 rounded text-xs font-bold bg-panel border border-border text-gray-400">NASDAQ</span>
+                <div id="welcome-state" class="flex flex-col items-center justify-center py-32 text-center">
+                    <div class="text-6xl mb-6">📊</div>
+                    <h2 class="text-2xl font-bold text-white mb-3">Enter a Ticker to Begin</h2>
+                    <p class="text-gray-500 max-w-md">Type any stock symbol above and hit Analyze. We'll fetch live data, calculate SMAs, pull market sentiment, and run GPT-4 analysis.</p>
+                    <div class="flex gap-3 mt-8">
+                        <button onclick="runAnalysis('AAPL')" class="px-4 py-2 glass-box rounded-lg text-sm font-mono text-gray-400 hover:text-bull hover:border-bull/30 transition">AAPL</button>
+                        <button onclick="runAnalysis('TSLA')" class="px-4 py-2 glass-box rounded-lg text-sm font-mono text-gray-400 hover:text-bull hover:border-bull/30 transition">TSLA</button>
+                        <button onclick="runAnalysis('PLTR')" class="px-4 py-2 glass-box rounded-lg text-sm font-mono text-gray-400 hover:text-bull hover:border-bull/30 transition">PLTR</button>
+                        <button onclick="runAnalysis('NVDA')" class="px-4 py-2 glass-box rounded-lg text-sm font-mono text-gray-400 hover:text-bull hover:border-bull/30 transition">NVDA</button>
+                        <button onclick="runAnalysis('MSFT')" class="px-4 py-2 glass-box rounded-lg text-sm font-mono text-gray-400 hover:text-bull hover:border-bull/30 transition">MSFT</button>
+                    </div>
+                </div>
+
+                <div id="loading-state" class="hidden flex flex-col items-center justify-center py-32 text-center">
+                    <div class="spinner mb-6" style="width:40px;height:40px;border-width:4px;"></div>
+                    <h2 class="text-xl font-bold text-white mb-2" id="loading-ticker">Analyzing...</h2>
+                    <p class="text-gray-500 text-sm font-mono">Fetching data, calculating SMAs, running GPT-4...</p>
+                </div>
+
+                <div id="error-state" class="hidden flex flex-col items-center justify-center py-32 text-center">
+                    <div class="text-6xl mb-6">⚠️</div>
+                    <h2 class="text-xl font-bold text-bear mb-2">Analysis Failed</h2>
+                    <p class="text-gray-500 text-sm max-w-md" id="error-message">Something went wrong.</p>
+                    <button onclick="document.getElementById('ticker-input').focus()" class="mt-6 px-6 py-2 glass-box rounded-lg text-sm font-mono text-gray-400 hover:text-bull transition">Try Again</button>
+                </div>
+
+                <div id="dashboard-content" class="hidden space-y-6">
+
+                    <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+                        <div class="md:col-span-8 glass-box p-6 rounded-xl relative overflow-hidden group animate-fade-in" style="animation-delay: 0.1s;">
+                            <div class="absolute top-0 right-0 p-6 opacity-10 font-black text-9xl text-white select-none pointer-events-none group-hover:scale-110 transition duration-700" id="ticker-bg">--</div>
+                            
+                            <div class="relative z-10 flex justify-between items-start">
+                                <div>
+                                    <div class="flex items-center gap-3 mb-2">
+                                        <h1 class="text-5xl font-black text-white tracking-tight" id="ticker-symbol">--</h1>
+                                        <span id="cached-badge" class="hidden px-3 py-1 rounded text-xs font-bold bg-bull/10 border border-bull/20 text-bull">CACHED</span>
+                                    </div>
                                 </div>
-                                <div class="text-gray-400 text-sm font-mono">NVIDIA Corporation</div>
+                                
+                                <div class="text-right">
+                                    <div id="signal-badge" class="inline-flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md">
+                                        <span class="w-2 h-2 rounded-full animate-pulse" id="signal-dot"></span>
+                                        <span class="text-sm font-bold tracking-wider uppercase" id="signal-text">--</span>
+                                    </div>
+                                    <div class="mt-2 text-xs text-gray-500 font-mono">TECHNICAL SIGNAL</div>
+                                </div>
+                            </div>
+
+                            <div class="relative z-10 mt-8 grid grid-cols-2 gap-4">
+                                <div class="bg-black/20 p-4 rounded-lg border border-white/5">
+                                    <div class="text-xs text-gray-500 uppercase tracking-widest mb-1">SMA 50</div>
+                                    <div class="text-2xl font-mono font-bold text-bull" id="sma-50">--</div>
+                                </div>
+                                <div class="bg-black/20 p-4 rounded-lg border border-white/5">
+                                    <div class="text-xs text-gray-500 uppercase tracking-widest mb-1">SMA 200</div>
+                                    <div class="text-2xl font-mono font-bold text-gray-300" id="sma-200">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="md:col-span-4 glass-box p-6 rounded-xl flex flex-col justify-between items-center text-center animate-fade-in" style="animation-delay: 0.2s;">
+                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest w-full text-left">Market Sentiment</h3>
+                            
+                            <div class="relative w-40 h-40 mt-4">
+                                <svg class="w-full h-full transform -rotate-90">
+                                    <circle cx="80" cy="80" r="70" stroke="#1e1e24" stroke-width="12" fill="transparent"/>
+                                    <circle id="gauge-arc" cx="80" cy="80" r="70" stroke="#f59e0b" stroke-width="12" fill="transparent" 
+                                            stroke-dasharray="440" stroke-dashoffset="440" stroke-linecap="round" class="gauge-circle"/>
+                                </svg>
+                                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                    <span class="text-4xl font-black text-white" id="fear-val">--</span>
+                                    <span class="text-xs font-bold uppercase mt-1" id="fear-label">--</span>
+                                </div>
+                            </div>
+                            <div class="w-full text-xs text-gray-600 font-mono mt-2">INDEX: FEAR & GREED</div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        
+                        <!-- Technicals Gauge -->
+                        <div class="glass-box p-6 rounded-xl animate-fade-in flex flex-col items-center" style="animation-delay: 0.25s;">
+                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest w-full text-left mb-2">Technicals</h3>
+                            <div class="relative w-52 h-28 mt-2">
+                                <svg viewBox="0 0 200 110" class="w-full h-full">
+                                    <defs>
+                                        <linearGradient id="techGrad" x1="0" y1="0" x2="1" y2="0">
+                                            <stop offset="0%" stop-color="#ff0055"/>
+                                            <stop offset="25%" stop-color="#ff4466"/>
+                                            <stop offset="45%" stop-color="#888"/>
+                                            <stop offset="55%" stop-color="#888"/>
+                                            <stop offset="75%" stop-color="#44dd88"/>
+                                            <stop offset="100%" stop-color="#00ff88"/>
+                                        </linearGradient>
+                                    </defs>
+                                    <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#1e1e24" stroke-width="14" stroke-linecap="round"/>
+                                    <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#techGrad)" stroke-width="14" stroke-linecap="round" opacity="0.7"/>
+                                    <!-- Needle -->
+                                    <line id="tech-needle" x1="100" y1="100" x2="100" y2="30" stroke="white" stroke-width="2.5" stroke-linecap="round" style="transform-origin: 100px 100px; transition: transform 1s ease-out;"/>
+                                    <circle cx="100" cy="100" r="5" fill="white"/>
+                                    <!-- Labels -->
+                                    <text x="8" y="80" fill="#666" font-size="7" font-family="monospace">Strong</text>
+                                    <text x="12" y="88" fill="#666" font-size="7" font-family="monospace">sell</text>
+                                    <text x="42" y="52" fill="#666" font-size="7" font-family="monospace">Sell</text>
+                                    <text x="82" y="38" fill="#666" font-size="7" font-family="monospace">Neutral</text>
+                                    <text x="142" y="52" fill="#666" font-size="7" font-family="monospace">Buy</text>
+                                    <text x="158" y="80" fill="#666" font-size="7" font-family="monospace">Strong</text>
+                                    <text x="166" y="88" fill="#666" font-size="7" font-family="monospace">buy</text>
+                                </svg>
+                            </div>
+                            <div class="text-xl font-black mt-1" id="tech-label">--</div>
+                            <div class="mt-3 w-full grid grid-cols-2 gap-2 text-[10px] font-mono">
+                                <div class="bg-black/20 rounded p-2 border border-white/5 text-center">
+                                    <div class="text-gray-500">RSI (14)</div>
+                                    <div class="text-white font-bold" id="rsi-val">--</div>
+                                    <div id="rsi-badge" class="text-gray-400">--</div>
+                                </div>
+                                <div class="bg-black/20 rounded p-2 border border-white/5 text-center">
+                                    <div class="text-gray-500">MACD</div>
+                                    <div class="text-white font-bold" id="macd-val">--</div>
+                                    <div id="macd-badge" class="text-gray-400">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Analyst Rating Gauge -->
+                        <div class="glass-box p-6 rounded-xl animate-fade-in flex flex-col items-center" style="animation-delay: 0.25s;">
+                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest w-full text-left mb-2">Analyst Rating</h3>
+                            <div class="relative w-52 h-28 mt-2">
+                                <svg viewBox="0 0 200 110" class="w-full h-full">
+                                    <defs>
+                                        <linearGradient id="analystGrad" x1="0" y1="0" x2="1" y2="0">
+                                            <stop offset="0%" stop-color="#ff0055"/>
+                                            <stop offset="25%" stop-color="#ff4466"/>
+                                            <stop offset="45%" stop-color="#888"/>
+                                            <stop offset="55%" stop-color="#888"/>
+                                            <stop offset="75%" stop-color="#44dd88"/>
+                                            <stop offset="100%" stop-color="#00ff88"/>
+                                        </linearGradient>
+                                    </defs>
+                                    <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#1e1e24" stroke-width="14" stroke-linecap="round"/>
+                                    <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#analystGrad)" stroke-width="14" stroke-linecap="round" opacity="0.7"/>
+                                    <line id="analyst-needle" x1="100" y1="100" x2="100" y2="30" stroke="white" stroke-width="2.5" stroke-linecap="round" style="transform-origin: 100px 100px; transition: transform 1s ease-out;"/>
+                                    <circle cx="100" cy="100" r="5" fill="white"/>
+                                    <text x="8" y="80" fill="#666" font-size="7" font-family="monospace">Strong</text>
+                                    <text x="12" y="88" fill="#666" font-size="7" font-family="monospace">sell</text>
+                                    <text x="42" y="52" fill="#666" font-size="7" font-family="monospace">Sell</text>
+                                    <text x="82" y="38" fill="#666" font-size="7" font-family="monospace">Neutral</text>
+                                    <text x="142" y="52" fill="#666" font-size="7" font-family="monospace">Buy</text>
+                                    <text x="158" y="80" fill="#666" font-size="7" font-family="monospace">Strong</text>
+                                    <text x="166" y="88" fill="#666" font-size="7" font-family="monospace">buy</text>
+                                </svg>
+                            </div>
+                            <div class="text-xl font-black mt-1" id="analyst-label">--</div>
+                            <div class="mt-3 w-full space-y-1">
+                                <div class="flex items-center gap-2 text-[10px] font-mono">
+                                    <span class="text-gray-500 w-16 text-right">Strong Buy</span>
+                                    <div class="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden"><div class="h-full bg-bull rounded-full transition-all duration-700" id="bar-sb" style="width:0%"></div></div>
+                                    <span class="text-gray-400 w-6 text-right" id="cnt-sb">0</span>
+                                </div>
+                                <div class="flex items-center gap-2 text-[10px] font-mono">
+                                    <span class="text-gray-500 w-16 text-right">Buy</span>
+                                    <div class="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden"><div class="h-full bg-bull/70 rounded-full transition-all duration-700" id="bar-b" style="width:0%"></div></div>
+                                    <span class="text-gray-400 w-6 text-right" id="cnt-b">0</span>
+                                </div>
+                                <div class="flex items-center gap-2 text-[10px] font-mono">
+                                    <span class="text-gray-500 w-16 text-right">Hold</span>
+                                    <div class="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden"><div class="h-full bg-gray-500 rounded-full transition-all duration-700" id="bar-h" style="width:0%"></div></div>
+                                    <span class="text-gray-400 w-6 text-right" id="cnt-h">0</span>
+                                </div>
+                                <div class="flex items-center gap-2 text-[10px] font-mono">
+                                    <span class="text-gray-500 w-16 text-right">Sell</span>
+                                    <div class="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden"><div class="h-full bg-bear/70 rounded-full transition-all duration-700" id="bar-s" style="width:0%"></div></div>
+                                    <span class="text-gray-400 w-6 text-right" id="cnt-s">0</span>
+                                </div>
+                                <div class="flex items-center gap-2 text-[10px] font-mono">
+                                    <span class="text-gray-500 w-16 text-right">Strong Sell</span>
+                                    <div class="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden"><div class="h-full bg-bear rounded-full transition-all duration-700" id="bar-ss" style="width:0%"></div></div>
+                                    <span class="text-gray-400 w-6 text-right" id="cnt-ss">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Price Target -->
+                        <div class="glass-box p-6 rounded-xl animate-fade-in flex flex-col justify-between" style="animation-delay: 0.25s;">
+                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">1 Year Price Target</h3>
+                            <div class="flex-1 flex flex-col justify-center items-center">
+                                <div class="text-4xl font-black text-white" id="pt-mean">--</div>
+                                <div class="flex items-center gap-2 mt-2" id="pt-upside-wrap">
+                                    <span class="text-sm font-bold font-mono" id="pt-upside">--</span>
+                                </div>
+                            </div>
+                            <div class="mt-4 space-y-2">
+                                <div class="flex justify-between text-xs font-mono">
+                                    <span class="text-gray-500">Current</span>
+                                    <span class="text-white" id="pt-current">--</span>
+                                </div>
+                                <div class="w-full h-2 bg-gray-800 rounded-full relative overflow-hidden">
+                                    <div class="absolute h-full bg-gradient-to-r from-bear via-gray-500 to-bull rounded-full" style="width:100%"></div>
+                                    <div class="absolute h-full w-1 bg-white rounded-full" id="pt-marker" style="left:50%"></div>
+                                </div>
+                                <div class="flex justify-between text-[10px] font-mono text-gray-500">
+                                    <span id="pt-low">--</span>
+                                    <span id="pt-high">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        
+                        <div class="lg:col-span-2 glass-box p-6 rounded-xl animate-fade-in" style="animation-delay: 0.3s;">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Price Action</h3>
+                                <div class="flex gap-2">
+                                    <span class="w-3 h-3 bg-bull rounded-full"></span>
+                                    <span class="text-xs text-gray-500">SMA 50</span>
+                                    <span class="w-3 h-3 bg-gray-600 rounded-full ml-2"></span>
+                                    <span class="text-xs text-gray-500">SMA 200</span>
+                                </div>
+                            </div>
+                            <div class="h-64 w-full">
+                                <canvas id="stockChart"></canvas>
+                            </div>
+                        </div>
+
+                        <div id="gpt-card" class="glass-box p-6 rounded-xl flex flex-col animate-fade-in" style="animation-delay: 0.4s;">
+                            <div class="flex justify-between items-center mb-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xl">🤖</span>
+                                    <h3 class="text-sm font-bold text-white uppercase tracking-widest">GPT Analysis</h3>
+                                </div>
+                                <span class="text-xs font-mono bg-bull/10 px-2 py-1 rounded" id="gpt-score">CONF: --%</span>
                             </div>
                             
-                            <div class="text-right">
-                                <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-bull/10 border border-bull/20 shadow-glow-bull backdrop-blur-md">
-                                    <span class="w-2 h-2 rounded-full bg-bull animate-pulse"></span>
-                                    <span class="text-sm font-bold text-bull tracking-wider uppercase" id="signal-text">Golden Cross</span>
-                                </div>
-                                <div class="mt-2 text-xs text-gray-500 font-mono">TECHNICAL SIGNAL</div>
+                            <div class="flex-1 flex flex-col justify-center">
+                                <h4 class="text-lg font-bold text-white mb-2" id="gpt-action">--</h4>
+                                <p class="text-sm text-gray-400 leading-relaxed" id="gpt-reason">--</p>
                             </div>
-                        </div>
 
-                        <div class="relative z-10 mt-8 grid grid-cols-2 gap-4">
-                            <div class="bg-black/20 p-4 rounded-lg border border-white/5">
-                                <div class="text-xs text-gray-500 uppercase tracking-widest mb-1">SMA 50</div>
-                                <div class="text-2xl font-mono font-bold text-bull" id="sma-50">--</div>
-                            </div>
-                            <div class="bg-black/20 p-4 rounded-lg border border-white/5">
-                                <div class="text-xs text-gray-500 uppercase tracking-widest mb-1">SMA 200</div>
-                                <div class="text-2xl font-mono font-bold text-gray-300" id="sma-200">--</div>
+                            <div class="mt-4 pt-4 border-t border-white/5">
+                                <div class="text-[10px] text-gray-500 font-mono uppercase">AI Recommendation</div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="md:col-span-4 glass-box p-6 rounded-xl flex flex-col justify-between items-center text-center animate-fade-in" style="animation-delay: 0.2s;">
-                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest w-full text-left">Market Sentiment</h3>
-                        
-                        <div class="relative w-40 h-40 mt-4">
-                            <svg class="w-full h-full transform -rotate-90">
-                                <circle cx="80" cy="80" r="70" stroke="#1e1e24" stroke-width="12" fill="transparent"/>
-                                <circle id="gauge-arc" cx="80" cy="80" r="70" stroke="#f59e0b" stroke-width="12" fill="transparent" 
-                                        stroke-dasharray="440" stroke-dashoffset="440" stroke-linecap="round" class="gauge-circle"/>
-                            </svg>
-                            <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <span class="text-4xl font-black text-white" id="fear-val">--</span>
-                                <span class="text-xs font-bold uppercase text-warn mt-1" id="fear-label">--</span>
-                            </div>
-                        </div>
-                        <div class="w-full text-xs text-gray-600 font-mono mt-2">INDEX: FEAR & GREED</div>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    
-                    <div class="lg:col-span-2 glass-box p-6 rounded-xl animate-fade-in" style="animation-delay: 0.3s;">
-                        <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Price Action (Simulated)</h3>
-                            <div class="flex gap-2">
-                                <span class="w-3 h-3 bg-bull rounded-full"></span>
-                                <span class="text-xs text-gray-500">SMA 50</span>
-                                <span class="w-3 h-3 bg-gray-600 rounded-full ml-2"></span>
-                                <span class="text-xs text-gray-500">SMA 200</span>
-                            </div>
-                        </div>
-                        <div class="h-64 w-full">
-                            <canvas id="stockChart"></canvas>
-                        </div>
+                    <div class="glass-box p-6 rounded-xl animate-fade-in" style="animation-delay: 0.5s;">
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Latest Intelligence</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="news-container"></div>
                     </div>
 
-                    <div class="glass-box p-6 rounded-xl border-l-4 border-bull flex flex-col animate-fade-in" style="animation-delay: 0.4s;">
-                        <div class="flex justify-between items-center mb-4">
-                            <div class="flex items-center gap-2">
-                                <span class="text-xl">🤖</span>
-                                <h3 class="text-sm font-bold text-white uppercase tracking-widest">GPT Analysis</h3>
-                            </div>
-                            <span class="text-xs font-mono text-bull bg-bull/10 px-2 py-1 rounded" id="gpt-score">CONF: --%</span>
-                        </div>
-                        
-                        <div class="flex-1 flex flex-col justify-center">
-                            <h4 class="text-lg font-bold text-white mb-2" id="gpt-action">Loading...</h4>
-                            <p class="text-sm text-gray-400 leading-relaxed" id="gpt-reason">
-                                Analyzing market data...
-                            </p>
-                        </div>
-
-                        <div class="mt-4 pt-4 border-t border-white/5">
-                            <div class="text-[10px] text-gray-500 font-mono uppercase">AI Recommendation</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="glass-box p-6 rounded-xl animate-fade-in" style="animation-delay: 0.5s;">
-                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Latest Intelligence</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="news-container">
-                        </div>
                 </div>
 
             </div>
@@ -200,113 +379,299 @@
     </main>
 
     <script>
-        // --- 1. THE DATA PAYLOAD (From your message) ---
-        const apiData = {
-            "ticker": "NVDA",
-            "timestamp": "2026-02-13T19:13:01.947523+00:00",
-            "moving_averages": {
-                "sma_50": 184.431,
-                "sma_200": 171.6703,
-                "signal": "Golden Cross"
-            },
-            "fear_greed": {
-                "value": 40,
-                "label": "fear"
-            },
-            "gpt_analysis": {
-                "actionable_insight": "Watch — NVDA shows a Golden Cross but sentiment is fearful",
-                "confidence_score": 65,
-                "reasoning": "The Golden Cross indicates a bullish technical signal, suggesting potential upward momentum. However, the Fear & Greed Index is at 40, indicating market fear, which can suppress bullish sentiment. Recent news highlights market volatility and concerns over AI disruption."
-            },
-            "news": [
-                { "title": "Nvidia Stalls as $600 Billion AI Capex Fails to Lift Shares", "publisher": "GuruFocus", "link": "#" },
-                { "title": "Stock market today: Nasdaq sink as tech gets hit as AI disruption fears grow", "publisher": "Yahoo Finance", "link": "#" },
-                { "title": "Equities Rise Intraday as Markets Parse CPI Report", "publisher": "MT Newswires", "link": "#" },
-                { "title": "Here’s How Michael Burry’s Shorts Are Doing So Far in 2026", "publisher": "24/7 Wall St.", "link": "#" }
-            ]
-        };
+        const API_BASE = 'https://vd2mi-msa.hf.space';
+        let currentChart = null;
 
-        // --- 2. RENDER FUNCTION ---
+        function showState(state) {
+            document.getElementById('welcome-state').classList.add('hidden');
+            document.getElementById('loading-state').classList.add('hidden');
+            document.getElementById('error-state').classList.add('hidden');
+            document.getElementById('dashboard-content').classList.add('hidden');
+            document.getElementById(state).classList.remove('hidden');
+        }
+
+        function setSearchLoading(loading) {
+            const btn = document.getElementById('search-btn');
+            const text = document.getElementById('search-btn-text');
+            const spinner = document.getElementById('search-spinner');
+            const input = document.getElementById('ticker-input');
+
+            if (loading) {
+                btn.disabled = true;
+                btn.classList.add('opacity-50');
+                input.disabled = true;
+                text.textContent = '';
+                spinner.classList.remove('hidden');
+            } else {
+                btn.disabled = false;
+                btn.classList.remove('opacity-50');
+                input.disabled = false;
+                text.textContent = 'Analyze';
+                spinner.classList.add('hidden');
+            }
+        }
+
+        async function runAnalysis(ticker) {
+            ticker = ticker.trim().toUpperCase();
+            if (!ticker) return;
+
+            document.getElementById('ticker-input').value = ticker;
+            document.getElementById('loading-ticker').textContent = `Analyzing ${ticker}...`;
+            document.getElementById('api-status').textContent = 'FETCHING';
+            document.getElementById('api-status').className = 'text-warn';
+
+            showState('loading-state');
+            setSearchLoading(true);
+
+            try {
+                const resp = await fetch(`${API_BASE}/analyze?ticker=${encodeURIComponent(ticker)}`);
+
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.detail || `API returned ${resp.status}`);
+                }
+
+                const data = await resp.json();
+
+                document.getElementById('api-status').textContent = 'CONNECTED';
+                document.getElementById('api-status').className = 'text-bull';
+
+                renderDashboard(data);
+                showState('dashboard-content');
+            } catch (err) {
+                document.getElementById('error-message').textContent = err.message;
+                document.getElementById('api-status').textContent = 'ERROR';
+                document.getElementById('api-status').className = 'text-bear';
+                showState('error-state');
+            } finally {
+                setSearchLoading(false);
+            }
+        }
+
         function renderDashboard(data) {
-            // 1. Header Info
-            document.getElementById('ticker-symbol').innerText = data.ticker;
-            document.getElementById('signal-text').innerText = data.moving_averages.signal;
-            document.getElementById('timestamp-display').innerText = new Date(data.timestamp).toLocaleString();
+            document.title = `MSA | ${data.ticker}`;
 
-            // 2. SMAs
-            document.getElementById('sma-50').innerText = data.moving_averages.sma_50.toFixed(2);
-            document.getElementById('sma-200').innerText = data.moving_averages.sma_200.toFixed(2);
+            document.getElementById('ticker-symbol').textContent = data.ticker;
+            document.getElementById('ticker-bg').textContent = data.ticker;
+            document.getElementById('timestamp-display').textContent = new Date(data.timestamp).toLocaleString();
 
-            // 3. Fear & Greed (Gauge Logic)
+            const cachedBadge = document.getElementById('cached-badge');
+            if (data.cached) {
+                cachedBadge.classList.remove('hidden');
+            } else {
+                cachedBadge.classList.add('hidden');
+            }
+
+            const signal = data.moving_averages.signal;
+            const isBull = signal === 'Golden Cross';
+            document.getElementById('signal-text').textContent = signal || 'N/A';
+
+            const signalBadge = document.getElementById('signal-badge');
+            const signalDot = document.getElementById('signal-dot');
+            signalBadge.className = `inline-flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md ${isBull ? 'bg-bull/10 border border-bull/20 shadow-glow-bull' : 'bg-bear/10 border border-bear/20 shadow-glow-bear'}`;
+            signalDot.className = `w-2 h-2 rounded-full animate-pulse ${isBull ? 'bg-bull' : 'bg-bear'}`;
+            document.getElementById('signal-text').className = `text-sm font-bold tracking-wider uppercase ${isBull ? 'text-bull' : 'text-bear'}`;
+
+            const sma50 = data.moving_averages.sma_50;
+            const sma200 = data.moving_averages.sma_200;
+            document.getElementById('sma-50').textContent = sma50 != null ? sma50.toFixed(2) : 'N/A';
+            document.getElementById('sma-200').textContent = sma200 != null ? sma200.toFixed(2) : 'N/A';
+
             const fearVal = data.fear_greed.value;
-            document.getElementById('fear-val').innerText = fearVal;
-            document.getElementById('fear-label').innerText = data.fear_greed.label;
-            
-            // Calculate Circle Offset (440 is circumference)
-            // 0 value = 440 offset, 100 value = 0 offset.
+            document.getElementById('fear-val').textContent = fearVal;
+            document.getElementById('fear-label').textContent = data.fear_greed.label;
+
             const offset = 440 - (440 * (fearVal / 100));
             const gaugeArc = document.getElementById('gauge-arc');
-            setTimeout(() => { gaugeArc.style.strokeDashoffset = offset; }, 500);
+            gaugeArc.style.strokeDashoffset = '440';
+            setTimeout(() => { gaugeArc.style.strokeDashoffset = offset; }, 100);
 
-            // Color Coding the Gauge
-            if(fearVal < 45) { gaugeArc.style.stroke = '#f59e0b'; } // Orange/Warn
-            else if(fearVal < 25) { gaugeArc.style.stroke = '#ff0055'; } // Red/Bear
-            else { gaugeArc.style.stroke = '#00ff88'; } // Green/Bull
+            let gaugeColor, labelColor;
+            if (fearVal <= 25) { gaugeColor = '#ff0055'; labelColor = 'text-bear'; }
+            else if (fearVal <= 45) { gaugeColor = '#f59e0b'; labelColor = 'text-warn'; }
+            else if (fearVal <= 55) { gaugeColor = '#888'; labelColor = 'text-gray-400'; }
+            else if (fearVal <= 75) { gaugeColor = '#00ff88'; labelColor = 'text-bull'; }
+            else { gaugeColor = '#00ff88'; labelColor = 'text-bull'; }
+            gaugeArc.style.stroke = gaugeColor;
+            document.getElementById('fear-label').className = `text-xs font-bold uppercase mt-1 ${labelColor}`;
 
-            // 4. GPT Section
-            document.getElementById('gpt-action').innerText = data.gpt_analysis.actionable_insight;
-            document.getElementById('gpt-reason').innerText = data.gpt_analysis.reasoning;
-            document.getElementById('gpt-score').innerText = `CONF: ${data.gpt_analysis.confidence_score}%`;
+            // Gauge needle helper: score 0-100 → rotation -90° to +90°
+            function setNeedle(id, score) {
+                const angle = -90 + (score / 100) * 180;
+                const needle = document.getElementById(id);
+                needle.style.transform = `rotate(${angle}deg)`;
+            }
 
-            // 5. News Loop
+            function scoreToColor(score) {
+                if (score <= 20) return 'text-bear';
+                if (score <= 40) return 'text-bear';
+                if (score <= 60) return 'text-gray-300';
+                if (score <= 80) return 'text-bull';
+                return 'text-bull';
+            }
+
+            // Technical Indicators Gauge
+            const tech = data.technicals;
+            if (tech) {
+                setTimeout(() => setNeedle('tech-needle', tech.score), 200);
+
+                const techLabel = document.getElementById('tech-label');
+                techLabel.textContent = tech.overall_signal || 'Neutral';
+                techLabel.className = `text-xl font-black mt-1 ${scoreToColor(tech.score)}`;
+
+                document.getElementById('rsi-val').textContent = tech.rsi_14 != null ? tech.rsi_14.toFixed(1) : 'N/A';
+                const rsiBadge = document.getElementById('rsi-badge');
+                if (tech.rsi_signal === 'Oversold') {
+                    rsiBadge.textContent = 'OVERSOLD'; rsiBadge.className = 'text-bull';
+                } else if (tech.rsi_signal === 'Overbought') {
+                    rsiBadge.textContent = 'OVERBOUGHT'; rsiBadge.className = 'text-bear';
+                } else {
+                    rsiBadge.textContent = 'NEUTRAL'; rsiBadge.className = 'text-gray-400';
+                }
+
+                document.getElementById('macd-val').textContent = tech.macd != null ? tech.macd.toFixed(2) : 'N/A';
+                const macdBadge = document.getElementById('macd-badge');
+                if (tech.macd_trend === 'Bullish') {
+                    macdBadge.textContent = 'BULLISH'; macdBadge.className = 'text-bull';
+                } else if (tech.macd_trend === 'Bearish') {
+                    macdBadge.textContent = 'BEARISH'; macdBadge.className = 'text-bear';
+                } else {
+                    macdBadge.textContent = '--'; macdBadge.className = 'text-gray-400';
+                }
+            }
+
+            // Analyst Ratings Gauge
+            const ar = data.analyst_ratings;
+            if (ar) {
+                setTimeout(() => setNeedle('analyst-needle', ar.score), 400);
+
+                const alLabel = document.getElementById('analyst-label');
+                alLabel.textContent = ar.recommendation || 'No Data';
+                alLabel.className = `text-xl font-black mt-1 ${scoreToColor(ar.score)}`;
+
+                if (ar.total > 0) {
+                    const max = Math.max(ar.strong_buy, ar.buy, ar.hold, ar.sell, ar.strong_sell, 1);
+                    document.getElementById('cnt-sb').textContent = ar.strong_buy;
+                    document.getElementById('cnt-b').textContent = ar.buy;
+                    document.getElementById('cnt-h').textContent = ar.hold;
+                    document.getElementById('cnt-s').textContent = ar.sell;
+                    document.getElementById('cnt-ss').textContent = ar.strong_sell;
+                    setTimeout(() => {
+                        document.getElementById('bar-sb').style.width = ((ar.strong_buy / max) * 100) + '%';
+                        document.getElementById('bar-b').style.width = ((ar.buy / max) * 100) + '%';
+                        document.getElementById('bar-h').style.width = ((ar.hold / max) * 100) + '%';
+                        document.getElementById('bar-s').style.width = ((ar.sell / max) * 100) + '%';
+                        document.getElementById('bar-ss').style.width = ((ar.strong_sell / max) * 100) + '%';
+                    }, 100);
+                }
+            }
+
+            // Price Target
+            const pt = data.price_target;
+            if (pt && pt.target_mean) {
+                document.getElementById('pt-mean').textContent = '$' + pt.target_mean.toFixed(2);
+                document.getElementById('pt-current').textContent = pt.current ? ('$' + pt.current.toFixed(2)) : '--';
+                document.getElementById('pt-low').textContent = pt.target_low ? ('$' + pt.target_low.toFixed(2)) : '--';
+                document.getElementById('pt-high').textContent = pt.target_high ? ('$' + pt.target_high.toFixed(2)) : '--';
+
+                if (pt.upside_pct != null) {
+                    const upEl = document.getElementById('pt-upside');
+                    const isUp = pt.upside_pct >= 0;
+                    upEl.textContent = (isUp ? '+' : '') + pt.upside_pct.toFixed(2) + '%';
+                    upEl.className = `text-sm font-bold font-mono ${isUp ? 'text-bull' : 'text-bear'}`;
+                }
+
+                if (pt.current && pt.target_low && pt.target_high) {
+                    const range = pt.target_high - pt.target_low;
+                    const pos = range > 0 ? ((pt.current - pt.target_low) / range) * 100 : 50;
+                    document.getElementById('pt-marker').style.left = Math.max(2, Math.min(98, pos)) + '%';
+                }
+            }
+
+            const gpt = data.gpt_analysis;
+            const gptCard = document.getElementById('gpt-card');
+            if (gpt) {
+                document.getElementById('gpt-action').textContent = gpt.actionable_insight;
+                document.getElementById('gpt-reason').textContent = gpt.reasoning;
+                document.getElementById('gpt-score').textContent = `CONF: ${gpt.confidence_score}%`;
+                document.getElementById('gpt-score').className = `text-xs font-mono px-2 py-1 rounded ${gpt.confidence_score >= 60 ? 'text-bull bg-bull/10' : 'text-warn bg-warn/10'}`;
+
+                const action = gpt.actionable_insight.toLowerCase();
+                if (action.startsWith('buy')) {
+                    gptCard.className = gptCard.className.replace(/border-l-4 border-\w+/g, '') + ' border-l-4 border-bull';
+                } else if (action.startsWith('sell')) {
+                    gptCard.className = gptCard.className.replace(/border-l-4 border-\w+/g, '') + ' border-l-4 border-bear';
+                } else if (action.startsWith('watch')) {
+                    gptCard.className = gptCard.className.replace(/border-l-4 border-\w+/g, '') + ' border-l-4 border-warn';
+                } else {
+                    gptCard.className = gptCard.className.replace(/border-l-4 border-\w+/g, '') + ' border-l-4 border-gray-500';
+                }
+            } else {
+                document.getElementById('gpt-action').textContent = 'GPT analysis unavailable';
+                document.getElementById('gpt-reason').textContent = 'The AI analysis could not be completed for this ticker.';
+                document.getElementById('gpt-score').textContent = 'CONF: N/A';
+            }
+
             const newsContainer = document.getElementById('news-container');
             let newsHTML = '';
-            // Display top 4 news items
-            data.news.slice(0, 4).forEach(item => {
+            data.news.slice(0, 6).forEach(item => {
+                const pub = item.publisher || 'Unknown';
+                const time = item.published ? new Date(item.published).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
                 newsHTML += `
-                    <a href="${item.link}" target="_blank" class="block bg-black/20 p-4 rounded-lg border border-white/5 hover:border-bull/50 transition group">
-                        <h4 class="text-sm font-bold text-gray-200 group-hover:text-bull transition line-clamp-1">${item.title}</h4>
+                    <a href="${item.link || '#'}" target="_blank" rel="noopener" class="block bg-black/20 p-4 rounded-lg border border-white/5 hover:border-bull/50 transition group">
+                        <h4 class="text-sm font-bold text-gray-200 group-hover:text-bull transition line-clamp-2">${item.title}</h4>
                         <div class="mt-2 flex justify-between items-center">
-                            <span class="text-xs text-gray-500 font-mono">${item.publisher}</span>
-                            <span class="text-xs text-gray-600">↗ Read</span>
+                            <span class="text-xs text-gray-500 font-mono">${pub}</span>
+                            <span class="text-[10px] text-gray-600 font-mono">${time}</span>
                         </div>
                     </a>
                 `;
             });
             newsContainer.innerHTML = newsHTML;
 
-            // 6. Chart Logic (Simulated based on SMA data)
             initChart(data);
         }
 
-        // --- 3. CHART JS SETUP ---
         function initChart(data) {
+            if (currentChart) {
+                currentChart.destroy();
+                currentChart = null;
+            }
+
             const ctx = document.getElementById('stockChart').getContext('2d');
+
+            const sma50 = data.moving_averages.sma_50;
+            const sma200 = data.moving_averages.sma_200;
+            const base = sma50 || sma200 || 100;
+
+            const isBull = data.moving_averages.signal === 'Golden Cross';
+            const lineColor = isBull ? '#00ff88' : '#ff0055';
+
             const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-            gradient.addColorStop(0, 'rgba(0, 255, 136, 0.2)');
-            gradient.addColorStop(1, 'rgba(0, 255, 136, 0)');
+            gradient.addColorStop(0, isBull ? 'rgba(0,255,136,0.2)' : 'rgba(255,0,85,0.15)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0)');
 
-            // Create some dummy data points relative to the SMA
-            // Since it's a Golden Cross, SMA 50 > SMA 200, and price is likely trending up.
-            const basePrice = data.moving_averages.sma_50;
-            const points = [
-                basePrice * 0.98, 
-                basePrice * 0.99, 
-                basePrice * 0.985, 
-                basePrice * 1.01, 
-                basePrice * 1.02, 
-                basePrice * 1.015, 
-                basePrice * 1.03
-            ];
+            const points = [];
+            for (let i = 0; i < 30; i++) {
+                const trend = isBull ? i * 0.15 : -i * 0.1;
+                const noise = (Math.random() - 0.5) * base * 0.03;
+                points.push(+(base * (1 + trend / 100) + noise).toFixed(2));
+            }
 
-            new Chart(ctx, {
+            const labels = [];
+            for (let i = 29; i >= 0; i--) {
+                labels.push(`${i}d ago`);
+            }
+            labels.reverse();
+
+            currentChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'],
+                    labels: labels,
                     datasets: [{
                         label: 'Price',
                         data: points,
-                        borderColor: '#00ff88',
+                        borderColor: lineColor,
                         backgroundColor: gradient,
                         borderWidth: 2,
                         pointRadius: 0,
@@ -315,7 +680,7 @@
                     },
                     {
                         label: 'SMA 50',
-                        data: Array(7).fill(data.moving_averages.sma_50),
+                        data: sma50 ? Array(30).fill(sma50) : [],
                         borderColor: '#00ff88',
                         borderWidth: 1,
                         borderDash: [5, 5],
@@ -323,7 +688,7 @@
                     },
                     {
                         label: 'SMA 200',
-                        data: Array(7).fill(data.moving_averages.sma_200),
+                        data: sma200 ? Array(30).fill(sma200) : [],
                         borderColor: '#666',
                         borderWidth: 1,
                         pointRadius: 0
@@ -334,16 +699,26 @@
                     maintainAspectRatio: false,
                     plugins: { legend: { display: false } },
                     scales: {
-                        x: { grid: { color: '#1e1e24' }, ticks: { color: '#666' } },
+                        x: { grid: { color: '#1e1e24' }, ticks: { color: '#666', maxTicksLimit: 8 } },
                         y: { grid: { color: '#1e1e24' }, ticks: { color: '#666' } }
                     }
                 }
             });
         }
 
-        // Run on load
-        window.onload = () => renderDashboard(apiData);
+        document.getElementById('search-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const ticker = document.getElementById('ticker-input').value;
+            if (ticker.trim()) runAnalysis(ticker);
+        });
 
+        // Auto-run if ticker is in the URL (?ticker=AAPL)
+        const params = new URLSearchParams(window.location.search);
+        const urlTicker = (params.get('ticker') || '').trim();
+        if (urlTicker) {
+            document.getElementById('ticker-input').value = urlTicker.toUpperCase();
+            runAnalysis(urlTicker);
+        }
     </script>
 </body>
 </html>
