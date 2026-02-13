@@ -121,27 +121,20 @@
             </div>
 
             <div class="flex items-center gap-6">
-                <div class="hidden md:flex items-center gap-2 text-xs font-mono text-gray-500">
-                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                    SYSTEM ONLINE
+                <div class="hidden md:flex items-center gap-2 text-xs font-mono text-gray-500" id="nav-status">
+                    <span class="w-2 h-2 rounded-full bg-gray-500"></span>
+                    CONNECTING
                 </div>
                 <a href="dashboard.html" class="hidden md:flex bg-white text-black px-6 py-2.5 rounded-full font-bold text-sm hover:bg-bull hover:scale-105 transition shadow-lg shadow-white/10 uppercase tracking-wider">
-                    Login
+                    Terminal
                 </a>
             </div>
         </div>
     </nav>
 
     <div class="fixed bottom-0 z-40 w-full ticker-wrap pointer-events-none">
-        <div class="ticker">
-            <div class="ticker-item">BTC <span class="text-bull">▲ $94,230</span></div>
-            <div class="ticker-item">ETH <span class="text-bear">▼ $3,100</span></div>
-            <div class="ticker-item">TSLA <span class="text-bull">▲ $240.5</span></div>
-            <div class="ticker-item">NVDA <span class="text-bull">▲ $1,120</span></div>
-            <div class="ticker-item">SPX <span class="text-gray-400">● 5,400</span></div>
-            <div class="ticker-item">MSA_INDEX <span class="text-bull font-bold">▲ 98.4%</span></div>
-            <div class="ticker-item">BTC <span class="text-bull">▲ $94,230</span></div>
-            <div class="ticker-item">ETH <span class="text-bear">▼ $3,100</span></div>
+        <div class="ticker" id="ticker-belt">
+            <div class="ticker-item text-gray-600">Connecting to live feed...</div>
         </div>
     </div>
 
@@ -166,34 +159,42 @@
                 Green means institutional buying, Red reveals critical risk.
             </p>
 
-            <div class="flex flex-col md:flex-row gap-6 w-full justify-center items-center">
-                <a href="dashboard.html" class="btn-neon px-12 py-5 rounded-full font-black text-lg tracking-widest uppercase">
+            <form id="hero-search" class="flex flex-col sm:flex-row gap-4 w-full max-w-xl justify-center items-center">
+                <input 
+                    type="text" 
+                    id="hero-ticker" 
+                    placeholder="Enter ticker (e.g. AAPL)" 
+                    maxlength="10"
+                    class="w-full sm:w-auto flex-1 bg-white/5 border border-white/10 rounded-full px-8 py-5 text-lg font-mono text-white placeholder-gray-600 focus:outline-none focus:border-bull/50 focus:shadow-neon-green transition text-center"
+                >
+                <button type="submit" class="btn-neon px-12 py-5 rounded-full font-black text-lg tracking-widest uppercase">
                     Launch Terminal
-                </a>
-                <button class="glass-panel px-12 py-5 rounded-full font-bold text-lg hover:bg-white/10 transition flex items-center justify-center gap-3">
-                    <span class="text-xl">▶</span> <span>Watch Demo</span>
                 </button>
-            </div>
+            </form>
 
         </section>
 
         <section class="py-20 border-y border-white/5 bg-black/20 backdrop-blur-sm">
             <div class="max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-12 text-center">
                 <div>
-                    <div class="text-4xl font-black text-white mb-2">24/7</div>
-                    <div class="text-xs text-gray-500 uppercase tracking-widest font-mono">Monitoring</div>
+                    <div class="text-4xl font-black mb-2" id="api-stat-status">
+                        <span class="text-gray-500">--</span>
+                    </div>
+                    <div class="text-xs text-gray-500 uppercase tracking-widest font-mono">API Status</div>
                 </div>
                 <div>
-                    <div class="text-4xl font-black text-bull mb-2">98.2%</div>
-                    <div class="text-xs text-gray-500 uppercase tracking-widest font-mono">Precision</div>
+                    <div class="text-4xl font-black mb-2" id="api-stat-latency">
+                        <span class="text-gray-500">--</span>
+                    </div>
+                    <div class="text-xs text-gray-500 uppercase tracking-widest font-mono">Response Time</div>
                 </div>
                 <div>
-                    <div class="text-4xl font-black text-white mb-2">12ms</div>
-                    <div class="text-xs text-gray-500 uppercase tracking-widest font-mono">Latency</div>
+                    <div class="text-4xl font-black text-bull mb-2">8,000+</div>
+                    <div class="text-xs text-gray-500 uppercase tracking-widest font-mono">Tickers</div>
                 </div>
                 <div>
                     <div class="text-4xl font-black text-bear mb-2">0%</div>
-                    <div class="text-xs text-gray-500 uppercase tracking-widest font-mono">Data Lag</div>
+                    <div class="text-xs text-gray-500 uppercase tracking-widest font-mono">Emotion</div>
                 </div>
             </div>
         </section>
@@ -211,8 +212,15 @@
                         </p>
                     </div>
                 </div>
-                <div class="md:w-1/2 text-right md:text-left opacity-30 font-mono text-xs tracking-widest">
-                    // VISUALIZING_BUY_PRESSURE
+                <div class="md:w-1/2">
+                    <div class="glass-panel p-6 rounded-2xl border border-bull/10 inline-block">
+                        <pre class="font-mono text-xs text-bull/40 leading-relaxed"><code>$ msa --mode live
+> source:  yfinance
+> sma_50:  ██████████ 184.32
+> sma_200: ██████░░░░ 171.08
+> signal:  GOLDEN_CROSS
+> status:  <span class="text-bull">BUY_PRESSURE_DETECTED</span></code></pre>
+                    </div>
                 </div>
             </div>
 
@@ -227,8 +235,16 @@
                         </p>
                     </div>
                 </div>
-                <div class="md:w-1/2 text-left md:text-right opacity-30 font-mono text-xs tracking-widest">
-                    // DETECTING_MARKET_DUMPS
+                <div class="md:w-1/2">
+                    <div class="glass-panel p-6 rounded-2xl border border-bear/10 inline-block float-right">
+                        <pre class="font-mono text-xs text-bear/40 leading-relaxed"><code>$ msa --scan risk
+> fear_greed: 22 (EXTREME_FEAR)
+> volume:    ▼▼▼ distribution
+> sma_50:    ░░░░░░████ 141.50
+> sma_200:   ██████████ 168.72
+> signal:    DEATH_CROSS
+> status:    <span class="text-bear">DUMP_DETECTED</span></code></pre>
+                    </div>
                 </div>
             </div>
 
@@ -251,7 +267,155 @@
     </main>
 
     <script>
-        // --- 2. THE THREE.JS ENGINE (EXACT COPY) ---
+        // --- WebSocket live feed ---
+        const WS_URL = 'wss://fisi-production.up.railway.app';
+        const STOCK_SYMBOLS = ['NVDA', 'PLTR', 'META', 'AAPL', 'TSLA', 'MSFT'];
+        const CRYPTO_SYMBOLS = ['bitcoin', 'ethereum', 'solana'];
+
+        const DISPLAY_NAMES = {
+            'NVDA': 'NVDA', 'PLTR': 'PLTR', 'META': 'META',
+            'AAPL': 'AAPL', 'TSLA': 'TSLA', 'MSFT': 'MSFT',
+            'bitcoin': 'BTC', 'ethereum': 'ETH', 'solana': 'SOL'
+        };
+
+        let ws = null;
+        let wsMessages = 0;
+        let wsLastTime = null;
+        let wsConnectedAt = null;
+        let tickerData = {};
+        let reconnectDelay = 1000;
+
+        function connectWS() {
+            if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+                return;
+            }
+
+            ws = new WebSocket(WS_URL);
+
+            ws.onopen = () => {
+                wsConnectedAt = Date.now();
+                reconnectDelay = 1000;
+                document.getElementById('nav-status').innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> FEED LIVE';
+
+                ws.send(JSON.stringify({
+                    type: 'subscribe',
+                    payload: { channel: 'stock', symbols: STOCK_SYMBOLS }
+                }));
+
+                ws.send(JSON.stringify({
+                    type: 'subscribe',
+                    payload: { channel: 'crypto', symbols: CRYPTO_SYMBOLS }
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                wsLastTime = Date.now();
+                wsMessages++;
+
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleWSMessage(msg);
+                } catch (e) {}
+            };
+
+            ws.onclose = () => {
+                document.getElementById('nav-status').innerHTML = '<span class="w-2 h-2 rounded-full bg-red-500"></span> RECONNECTING';
+                ws = null;
+                setTimeout(connectWS, reconnectDelay);
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+            };
+
+            ws.onerror = () => {
+                document.getElementById('nav-status').innerHTML = '<span class="w-2 h-2 rounded-full bg-yellow-500"></span> WS ERROR';
+            };
+        }
+
+        function handleWSMessage(msg) {
+            if (msg.type !== 'update') return;
+
+            const channel = msg.channel;
+            const symbol = msg.symbol;
+            const data = msg.data;
+            if (!symbol || !data) return;
+
+            let price = null;
+            let changePct = null;
+
+            if (channel === 'stock') {
+                price = parseFloat(data.c);
+                changePct = data.dp != null ? parseFloat(data.dp) : null;
+            } else if (channel === 'crypto') {
+                price = parseFloat(data.price);
+                changePct = data.change_percent != null ? parseFloat(data.change_percent) : null;
+            }
+
+            if (!price || isNaN(price)) return;
+
+            const prev = tickerData[symbol];
+            let direction = 0;
+            if (prev) {
+                direction = price > prev.price ? 1 : price < prev.price ? -1 : prev.direction || 0;
+            }
+            if (changePct != null) {
+                direction = changePct >= 0 ? 1 : -1;
+            }
+
+            tickerData[symbol] = { price, changePct, direction, channel, updated: Date.now() };
+            renderTickerBelt();
+        }
+
+        function renderTickerBelt() {
+            const belt = document.getElementById('ticker-belt');
+            const symbols = Object.keys(tickerData);
+            if (symbols.length === 0) return;
+
+            let html = '';
+            symbols.forEach(sym => {
+                const d = tickerData[sym];
+                const label = DISPLAY_NAMES[sym] || sym.toUpperCase();
+                const priceStr = d.price >= 1
+                    ? d.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    : d.price.toFixed(4);
+
+                const up = d.direction >= 0;
+                const arrow = d.direction > 0 ? '▲' : d.direction < 0 ? '▼' : '●';
+                const colorClass = d.direction > 0 ? 'text-bull' : d.direction < 0 ? 'text-bear' : 'text-gray-400';
+                const changeStr = d.changePct != null ? ` ${d.changePct >= 0 ? '+' : ''}${d.changePct.toFixed(2)}%` : '';
+
+                html += `<div class="ticker-item">${label} <span class="${colorClass}">${arrow} $${priceStr}${changeStr}</span></div>`;
+            });
+
+            belt.innerHTML = html + html;
+        }
+
+        connectWS();
+
+        const API_URL = 'https://vd2mi-msa.hf.space';
+
+        async function pingAPI() {
+            const statusEl = document.getElementById('api-stat-status');
+            const latencyEl = document.getElementById('api-stat-latency');
+
+            const t0 = performance.now();
+            try {
+                const resp = await fetch(`${API_URL}/health`);
+                const ms = Math.round(performance.now() - t0);
+
+                if (!resp.ok) throw new Error(resp.status);
+                const data = await resp.json();
+
+                statusEl.innerHTML = '<span class="text-bull">ONLINE</span>';
+                latencyEl.innerHTML = `<span class="${ms < 500 ? 'text-bull' : ms < 1500 ? 'text-white' : 'text-warn'}">${ms}ms</span>`;
+            } catch (e) {
+                statusEl.innerHTML = '<span class="text-bear">DOWN</span>';
+                latencyEl.innerHTML = '<span class="text-bear">ERR</span>';
+            }
+        }
+
+        pingAPI();
+        setInterval(pingAPI, 15000);
+
+        // --- Three.js engine ---
         let scene, camera, renderer, particles;
         let count = 0;
         let mouseX = 0, mouseY = 0;
@@ -399,6 +563,16 @@
                 scrollTrigger: { trigger: panel, start: "top 90%" },
                 y: 30, opacity: 0, duration: 0.8, ease: "power2.out"
             });
+        });
+
+        document.getElementById('hero-search').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const ticker = document.getElementById('hero-ticker').value.trim().toUpperCase();
+            if (ticker) {
+                window.location.href = `dashboard.html?ticker=${encodeURIComponent(ticker)}`;
+            } else {
+                window.location.href = 'dashboard.html';
+            }
         });
 
     </script>
