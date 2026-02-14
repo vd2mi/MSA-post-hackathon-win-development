@@ -41,6 +41,10 @@
             margin: 0; overflow-x: hidden; 
             background-color: #030305; 
             color: white;
+            cursor: crosshair;
+        }
+        button, a, .glass-panel, input {
+            cursor: pointer;
         }
         
         /* 1. The Canvas (Untouched) */
@@ -77,9 +81,9 @@
             border-bottom: 1px solid rgba(255,255,255,0.05);
             backdrop-filter: blur(5px);
         }
-        .ticker { display: inline-block; white-space: nowrap; animation: ticker 30s linear infinite; }
+        .ticker { display: inline-block; white-space: nowrap; animation: ticker 40s linear infinite; }
         .ticker-item { display: inline-block; padding: 0 2rem; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; color: #888; }
-        @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
+        @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-50%, 0, 0); } }
 
         /* 5. Scrollbar */
         ::-webkit-scrollbar { width: 6px; }
@@ -98,6 +102,22 @@
         .btn-neon:hover {
             box-shadow: 0 0 40px rgba(0, 255, 170, 0.6);
             transform: scale(1.05);
+        }
+
+        /* Hero candlestick background */
+        #hero-chart-canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1; opacity: 0.8; pointer-events: none;
+            mix-blend-mode: screen;
+        }
+        #chart-labels-container {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1; pointer-events: none; overflow: hidden;
+        }
+        .animate-float-up-label {
+            position: absolute; font-family: 'JetBrains Mono', monospace;
+            font-size: 10px; font-weight: bold; pointer-events: none;
+            white-space: nowrap;
         }
     </style>
 </head>
@@ -140,8 +160,11 @@
 
     <main class="z-content">
         
-        <section class="min-h-screen flex flex-col justify-center items-center text-center px-4 pt-20 relative">
+        <section class="min-h-screen flex flex-col justify-center items-center text-center px-4 pt-20 relative overflow-hidden">
             
+            <canvas id="hero-chart-canvas"></canvas>
+            <div id="chart-labels-container"></div>
+
             <div class="glass-panel px-6 py-2 rounded-full mb-10 flex items-center gap-3 animate-fade-in-up">
                 <span class="relative flex h-3 w-3">
                   <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75"></span>
@@ -415,6 +438,92 @@
         pingAPI();
         setInterval(pingAPI, 15000);
 
+        // --- Hero candlestick background ---
+        const heroCanvas = document.getElementById('hero-chart-canvas');
+        const labelsContainer = document.getElementById('chart-labels-container');
+        const heroCtx = heroCanvas.getContext('2d');
+        let heroWidth, heroHeight;
+        let heroCandles = [];
+        const candleWidth = 12;
+        const candleSpacing = 25;
+
+        const UP_WORDS = ["BREAKOUT", "ACCUMULATION", "MOMENTUM", "BUY", "RALLY", "LONG"];
+        const DOWN_WORDS = ["DUMP", "DISTRIBUTION", "CRASH", "SELL", "RESISTANCE", "SHORT"];
+
+        function resizeHero() {
+            heroWidth = heroCanvas.width = heroCanvas.parentElement.offsetWidth;
+            heroHeight = heroCanvas.height = heroCanvas.parentElement.offsetHeight;
+            initHeroCandles();
+        }
+
+        function initHeroCandles() {
+            heroCandles = [];
+            let x = 0;
+            let currentClose = heroHeight * 0.6;
+            while (x < heroWidth + 100) {
+                heroCandles.push(generateCandle(x, currentClose));
+                currentClose = heroCandles[heroCandles.length - 1].close;
+                x += candleSpacing;
+            }
+        }
+
+        function generateCandle(x, prevClose) {
+            let change = (Math.random() - 0.5) * 80;
+            let open = prevClose;
+            let close = open + change;
+            if (close < heroHeight * 0.2) close += 50;
+            if (close > heroHeight * 0.8) close -= 50;
+            let high = Math.min(open, close) - Math.random() * 30;
+            let low = Math.max(open, close) + Math.random() * 30;
+            return { x, open, close, high, low };
+        }
+
+        function spawnCandleLabel(x, y, isUp) {
+            const el = document.createElement('div');
+            const words = isUp ? UP_WORDS : DOWN_WORDS;
+            el.innerText = words[Math.floor(Math.random() * words.length)];
+            el.className = `animate-float-up-label ${isUp ? 'text-bull' : 'text-bear'}`;
+            el.style.left = x + 'px';
+            el.style.top = (y - 20) + 'px';
+            labelsContainer.appendChild(el);
+            el.animate([
+                { opacity: 1, transform: 'translateY(0) scale(1)' },
+                { opacity: 0, transform: 'translateY(-30px) scale(0.8)' }
+            ], { duration: 1500, easing: 'ease-out', fill: 'forwards' }).onfinish = () => el.remove();
+        }
+
+        function animateHero() {
+            for (let c of heroCandles) c.x -= 0.5;
+            if (heroCandles.length > 0 && heroCandles[0].x < -50) heroCandles.shift();
+            let last = heroCandles[heroCandles.length - 1];
+            if (last && last.x < heroWidth + 50) {
+                heroCandles.push(generateCandle(last.x + candleSpacing, last.close));
+            }
+            if (Math.random() < 0.04 && heroCandles.length > 5) {
+                const idx = Math.floor(Math.random() * heroCandles.length);
+                const c = heroCandles[idx];
+                if (c.x > 0 && c.x < heroWidth) spawnCandleLabel(c.x, c.high, c.close < c.open);
+            }
+            heroCtx.clearRect(0, 0, heroWidth, heroHeight);
+            for (let c of heroCandles) {
+                const isUp = c.close < c.open;
+                heroCtx.fillStyle = heroCtx.strokeStyle = isUp ? '#00ffaa' : '#ff0044';
+                heroCtx.globalAlpha = 0.8;
+                heroCtx.beginPath();
+                heroCtx.moveTo(c.x, c.high);
+                heroCtx.lineTo(c.x, c.low);
+                heroCtx.lineWidth = 1;
+                heroCtx.stroke();
+                const bodyTop = Math.min(c.open, c.close);
+                heroCtx.fillRect(c.x - candleWidth / 2, bodyTop, candleWidth, Math.max(Math.abs(c.close - c.open), 2));
+            }
+            heroCtx.globalAlpha = 1.0;
+            requestAnimationFrame(animateHero);
+        }
+
+        resizeHero();
+        animateHero();
+
         // --- Three.js engine ---
         let scene, camera, renderer, particles;
         let count = 0;
@@ -501,6 +610,7 @@
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
+                resizeHero();
             });
 
             animate();
