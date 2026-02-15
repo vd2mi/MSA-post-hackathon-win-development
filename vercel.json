@@ -1,9 +1,9 @@
 {
   "version": 2,
-  "public": true,
+  "cleanUrls": true,
   "rewrites": [
-    { "source": "/", "destination": "/templates/index.html" },
-    { "source": "/dashboard", "destination": "/templates/dashboard.html" },
-    { "source": "/compare", "destination": "/templates/compare.html" }
+    { "source": "/", "destination": "/index.html" },
+    { "source": "/dashboard", "destination": "/dashboard.html" },
+    { "source": "/compare", "destination": "/compare.html" }
   ]
 }
