@@ -106,6 +106,30 @@ class PriceTarget(BaseModel):
     upside_pct: float | None = Field(None, description="% upside to mean target")
 
 
+class BollingerBands(BaseModel):
+    upper: float | None = Field(None, description="Upper Bollinger Band (SMA20 + 2*stddev)")
+    middle: float | None = Field(None, description="Middle band (SMA 20)")
+    lower: float | None = Field(None, description="Lower Bollinger Band (SMA20 - 2*stddev)")
+    bandwidth: float | None = Field(None, description="Band width as % of middle band")
+    position: str | None = Field(None, description="Price position: Upper Band / Mid Band / Lower Band")
+    squeeze: bool = Field(False, description="True if bandwidth is historically low (squeeze)")
+
+
+class OBVAnalysis(BaseModel):
+    obv_current: float | None = Field(None, description="Current On-Balance Volume")
+    obv_trend: str | None = Field(None, description="Rising / Falling / Flat")
+    price_trend: str | None = Field(None, description="Rising / Falling / Flat (last 20 days)")
+    divergence: str | None = Field(None, description="Accumulation / Distribution / Confirmation / None")
+
+
+class VolumeProfile(BaseModel):
+    avg_volume_20d: int | None = Field(None, description="20-day average volume")
+    latest_volume: int | None = Field(None, description="Most recent day's volume")
+    volume_ratio: float | None = Field(None, description="Latest volume / 20-day avg")
+    spike: bool = Field(False, description="True if volume > 1.5x average")
+    spike_days: int = Field(0, description="Number of spike days in last 20")
+
+
 class GPTInsight(BaseModel):
     actionable_insight: str = Field(..., description="GPT-4 actionable recommendation")
     confidence_score: int = Field(
@@ -114,17 +138,26 @@ class GPTInsight(BaseModel):
     reasoning: str = Field(..., description="Brief reasoning behind the recommendation")
 
 
+class PricePoint(BaseModel):
+    date: str
+    close: float
+
+
 class AnalysisResponse(BaseModel):
     ticker: str
     timestamp: str
     cached: bool = Field(False, description="True if this result came from cache")
     moving_averages: MovingAverages
     technicals: TechnicalIndicators | None = None
+    bollinger_bands: BollingerBands | None = None
+    obv_analysis: OBVAnalysis | None = None
+    volume_profile: VolumeProfile | None = None
     analyst_ratings: AnalystRating | None = None
     price_target: PriceTarget | None = None
     fear_greed: FearGreed
     news: list[NewsHeadline]
     gpt_analysis: GPTInsight | None = None
+    price_history: list[PricePoint] = Field(default_factory=list, description="Last 30 days of closing prices (oldest first)")
 
 
 def _yf_fetch_history(ticker: str, period: str = "1y") -> list[dict[str, Any]]:
@@ -267,6 +300,145 @@ def calculate_technicals(daily_rows: list[dict[str, Any]]) -> TechnicalIndicator
         overall_signal=overall,
         score=gauge,
     )
+
+
+def calculate_bollinger(daily_rows: list[dict[str, Any]]) -> BollingerBands:
+    """Bollinger Bands: 20-period SMA +/- 2 standard deviations. daily_rows[0] = newest."""
+    try:
+        ordered = [r["close"] for r in reversed(daily_rows)]  # oldest first
+        if len(ordered) < 20:
+            return BollingerBands()
+
+        window = ordered[-20:]
+        sma20 = sum(window) / 20
+        variance = sum((x - sma20) ** 2 for x in window) / 20
+        stddev = variance ** 0.5
+
+        upper = round(sma20 + 2 * stddev, 2)
+        lower = round(sma20 - 2 * stddev, 2)
+        middle = round(sma20, 2)
+        bw = round((upper - lower) / middle * 100, 2) if middle else None
+
+        # detect squeeze: compare current bandwidth to avg of last 100 days' bandwidths
+        squeeze = False
+        if len(ordered) >= 100:
+            bws = []
+            for i in range(20, min(len(ordered) + 1, 101)):
+                w = ordered[i - 20:i]
+                m = sum(w) / 20
+                sd = (sum((x - m) ** 2 for x in w) / 20) ** 0.5
+                if m > 0:
+                    bws.append((m + 2 * sd - (m - 2 * sd)) / m * 100)
+            if bws and bw is not None:
+                avg_bw = sum(bws) / len(bws)
+                squeeze = bw < avg_bw * 0.5
+
+        current_price = ordered[-1]
+        if current_price >= upper * 0.98:
+            position = "Upper Band"
+        elif current_price <= lower * 1.02:
+            position = "Lower Band"
+        else:
+            position = "Mid Band"
+
+        return BollingerBands(
+            upper=upper, middle=middle, lower=lower,
+            bandwidth=bw, position=position, squeeze=squeeze,
+        )
+    except Exception as exc:
+        logger.warning("Bollinger Bands calculation failed: %s", exc)
+        return BollingerBands()
+
+
+def calculate_obv(daily_rows: list[dict[str, Any]]) -> OBVAnalysis:
+    """On-Balance Volume with trend and divergence detection. daily_rows[0] = newest."""
+    try:
+        ordered = list(reversed(daily_rows))  # oldest first
+        if len(ordered) < 20:
+            return OBVAnalysis()
+
+        # build OBV series
+        obv = [0.0]
+        for i in range(1, len(ordered)):
+            if ordered[i]["close"] > ordered[i - 1]["close"]:
+                obv.append(obv[-1] + ordered[i]["volume"])
+            elif ordered[i]["close"] < ordered[i - 1]["close"]:
+                obv.append(obv[-1] - ordered[i]["volume"])
+            else:
+                obv.append(obv[-1])
+
+        obv_now = obv[-1]
+
+        # OBV trend over last 20 days: linear regression slope direction
+        obv_20 = obv[-20:]
+        obv_slope = obv_20[-1] - obv_20[0]
+        if obv_slope > 0:
+            obv_trend = "Rising"
+        elif obv_slope < 0:
+            obv_trend = "Falling"
+        else:
+            obv_trend = "Flat"
+
+        # price trend over last 20 days
+        closes_20 = [r["close"] for r in ordered[-20:]]
+        price_slope = closes_20[-1] - closes_20[0]
+        pct_change = abs(price_slope) / closes_20[0] * 100 if closes_20[0] else 0
+        if pct_change < 2:
+            price_trend = "Flat"
+        elif price_slope > 0:
+            price_trend = "Rising"
+        else:
+            price_trend = "Falling"
+
+        # divergence detection
+        if obv_trend == "Rising" and price_trend == "Flat":
+            divergence = "Accumulation"
+        elif obv_trend == "Rising" and price_trend == "Falling":
+            divergence = "Accumulation"
+        elif obv_trend == "Falling" and price_trend == "Rising":
+            divergence = "Distribution"
+        elif obv_trend == "Falling" and price_trend == "Flat":
+            divergence = "Distribution"
+        elif obv_trend == price_trend:
+            divergence = "Confirmation"
+        else:
+            divergence = "None"
+
+        return OBVAnalysis(
+            obv_current=round(obv_now),
+            obv_trend=obv_trend,
+            price_trend=price_trend,
+            divergence=divergence,
+        )
+    except Exception as exc:
+        logger.warning("OBV calculation failed: %s", exc)
+        return OBVAnalysis()
+
+
+def calculate_volume_profile(daily_rows: list[dict[str, Any]]) -> VolumeProfile:
+    """Volume analysis: 20-day average, spikes, ratio. daily_rows[0] = newest."""
+    try:
+        if len(daily_rows) < 20:
+            return VolumeProfile()
+
+        last_20 = daily_rows[:20]  # newest 20 days
+        volumes = [r["volume"] for r in last_20]
+        avg_vol = int(sum(volumes) / 20)
+        latest_vol = volumes[0]
+        ratio = round(latest_vol / avg_vol, 2) if avg_vol > 0 else 0
+        spike = ratio > 1.5
+        spike_days = sum(1 for v in volumes if avg_vol > 0 and v > avg_vol * 1.5)
+
+        return VolumeProfile(
+            avg_volume_20d=avg_vol,
+            latest_volume=latest_vol,
+            volume_ratio=ratio,
+            spike=spike,
+            spike_days=spike_days,
+        )
+    except Exception as exc:
+        logger.warning("Volume profile calculation failed: %s", exc)
+        return VolumeProfile()
 
 
 def _yf_fetch_analyst_ratings(ticker: str) -> AnalystRating:
@@ -465,6 +637,9 @@ async def gpt_analysis(
     ticker: str,
     smas: MovingAverages,
     technicals: TechnicalIndicators,
+    bollinger: BollingerBands,
+    obv: OBVAnalysis,
+    volume: VolumeProfile,
     analyst: AnalystRating,
     fear_greed: FearGreed,
     headlines: list[NewsHeadline],
@@ -494,6 +669,27 @@ async def gpt_analysis(
             "macd_trend": technicals.macd_trend,
             "overall_technical_signal": technicals.overall_signal,
         },
+        "bollinger_bands": {
+            "upper": bollinger.upper,
+            "middle": bollinger.middle,
+            "lower": bollinger.lower,
+            "bandwidth_pct": bollinger.bandwidth,
+            "price_position": bollinger.position,
+            "squeeze_detected": bollinger.squeeze,
+        },
+        "on_balance_volume": {
+            "obv_current": obv.obv_current,
+            "obv_trend": obv.obv_trend,
+            "price_trend_20d": obv.price_trend,
+            "divergence": obv.divergence,
+        },
+        "volume_profile": {
+            "avg_volume_20d": volume.avg_volume_20d,
+            "latest_volume": volume.latest_volume,
+            "volume_ratio": volume.volume_ratio,
+            "volume_spike": volume.spike,
+            "spike_days_in_20": volume.spike_days,
+        },
         "analyst_ratings": {
             "strong_buy": analyst.strong_buy,
             "buy": analyst.buy,
@@ -515,22 +711,30 @@ async def gpt_analysis(
         "Role: Senior Quantitative Analyst at a top-tier hedge fund.\n\n"
         "You will receive a JSON object containing:\n"
         "1. 50-day and 200-day Simple Moving Averages with crossover signal.\n"
-        "2. Technical indicators: RSI-14 with overbought/oversold signal, "
-        "MACD with trend direction.\n"
-        "3. Wall Street analyst ratings breakdown (strongBuy/buy/hold/sell/strongSell).\n"
-        "4. The CNN Fear & Greed Index score and label.\n"
-        "5. Recent news headlines.\n\n"
-        "Your task:\n"
-        "- Synthesize ALL signals: SMA crossover, RSI, MACD, analyst consensus, "
-        "Fear & Greed sentiment, and news headlines.\n"
-        "- Provide a final Actionable Insight: one of Buy / Hold / Sell / Watch "
-        "with a concise explanation.\n"
-        "- Provide a Confidence Score from 0 to 100.\n\n"
-        "Respond with ONLY this JSON schema:\n"
+        "2. Technical indicators: RSI-14, MACD with trend direction.\n"
+        "3. Bollinger Bands (20, 2): upper/middle/lower band, bandwidth %, "
+        "price position relative to bands, and squeeze detection.\n"
+        "4. On-Balance Volume (OBV): trend direction, price trend, and divergence "
+        "(Accumulation = stealth buying, Distribution = smart money exiting).\n"
+        "5. Volume Profile: 20-day avg volume, latest volume ratio, spike detection.\n"
+        "6. Wall Street analyst ratings breakdown.\n"
+        "7. CNN Fear & Greed Index.\n"
+        "8. Recent news headlines.\n\n"
+        "Key rules for your analysis:\n"
+        "- Price at Lower Band + OBV Rising → Bullish Mean Reversion signal.\n"
+        "- Price at Upper Band + OBV Falling → Bearish Exhaustion signal.\n"
+        "- Bollinger Squeeze + dry volume → Breakout imminent, Watch closely.\n"
+        "- OBV rising while price flat/falling → Accumulation (smart money buying).\n"
+        "- OBV falling while price rising → Distribution (fake rally, likely reversal).\n"
+        "- Volume spike + price move = confirmation. Volume spike + no move = absorption.\n\n"
+        "Synthesize ALL signals and provide:\n"
+        "- Actionable Insight: Buy / Hold / Sell / Watch with explanation.\n"
+        "- Confidence Score: 0-100.\n\n"
+        "Respond with ONLY this JSON:\n"
         "{\n"
         '  "actionable_insight": "<Buy|Hold|Sell|Watch> — short explanation",\n'
         '  "confidence_score": <int 0-100>,\n'
-        '  "reasoning": "<2-3 sentence justification>"\n'
+        '  "reasoning": "<2-3 sentence justification referencing specific indicators>"\n'
         "}"
     )
 
@@ -612,10 +816,15 @@ async def analyze(
 
     smas = calculate_smas(daily_rows)
     technicals = calculate_technicals(daily_rows)
+    bb = calculate_bollinger(daily_rows)
+    obv = calculate_obv(daily_rows)
+    vol_profile = calculate_volume_profile(daily_rows)
 
     gpt_result: GPTInsight | None = None
     try:
-        gpt_result = await gpt_analysis(ticker, smas, technicals, analyst, fg, news)
+        gpt_result = await gpt_analysis(
+            ticker, smas, technicals, bb, obv, vol_profile, analyst, fg, news
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -624,17 +833,26 @@ async def analyze(
     elapsed = round(time.perf_counter() - t0, 2)
     logger.info("Analysis for %s completed in %.2fs", ticker, elapsed)
 
+    # last 30 days of closing prices, oldest first for charting
+    recent = daily_rows[:30]
+    recent.reverse()
+    history = [PricePoint(date=r["date"], close=round(r["close"], 2)) for r in recent]
+
     result = AnalysisResponse(
         ticker=ticker,
         timestamp=datetime.now(timezone.utc).isoformat(),
         cached=False,
         moving_averages=smas,
         technicals=technicals,
+        bollinger_bands=bb,
+        obv_analysis=obv,
+        volume_profile=vol_profile,
         analyst_ratings=analyst,
         price_target=pt,
         fear_greed=fg,
         news=news,
         gpt_analysis=gpt_result,
+        price_history=history,
     )
 
     _analysis_cache[ticker] = result.model_dump()
