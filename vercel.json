@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "public": true,
+  "rewrites": [
+    { "source": "/", "destination": "/templates/index.html" },
+    { "source": "/dashboard", "destination": "/templates/dashboard.html" },
+    { "source": "/compare", "destination": "/templates/compare.html" }
+  ]
+}
