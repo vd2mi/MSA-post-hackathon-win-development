@@ -169,15 +169,7 @@
             
             <canvas id="hero-chart-canvas"></canvas>
             <div id="chart-labels-container"></div>
-
-            <div class="glass-panel px-6 py-2 rounded-full mb-10 flex items-center gap-3 animate-fade-in-up">
-                <span class="relative flex h-3 w-3">
-                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75"></span>
-                  <span class="relative inline-flex rounded-full h-3 w-3 bg-bull"></span>
-                </span>
-                <span class="text-xs font-bold tracking-[0.2em] uppercase text-gray-300">Algorithm v4.0 Active</span>
-            </div>
-
+            
             <h1 class="text-7xl md:text-[9rem] font-black leading-[0.9] tracking-tight mb-8 text-gradient-main">
                 MARKET<br>PULSE
             </h1>
@@ -323,8 +315,6 @@
             ws.onopen = () => {
                 wsConnectedAt = Date.now();
                 reconnectDelay = 1000;
-                document.getElementById('nav-status').innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> FEED LIVE';
-
                 ws.send(JSON.stringify({
                     type: 'subscribe',
                     payload: { channel: 'stock', symbols: STOCK_SYMBOLS }
