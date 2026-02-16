@@ -8,12 +8,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import time
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+import numpy as np
 import yfinance as yf
 from bs4 import BeautifulSoup
 from cachetools import TTLCache
@@ -26,7 +28,9 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
+HF_API_TOKEN: str = os.environ.get("HF_API_TOKEN", "")
 CACHE_TTL_SECONDS: int = 300
+FINBERT_URL = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("msa")
@@ -37,7 +41,7 @@ app = FastAPI(
         "Stock analysis API: historical data, sentiment, news, and GPT-4 insights. "
         "Results are cached for 5 minutes per ticker."
     ),
-    version="2.0.0",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -72,6 +76,16 @@ class NewsHeadline(BaseModel):
     publisher: str | None = None
     link: str | None = None
     published: str | None = None
+    sentiment: str | None = Field(None, description="FinBERT: positive / negative / neutral")
+    sentiment_score: float | None = Field(None, description="FinBERT confidence 0-1")
+
+
+class NewsSentiment(BaseModel):
+    positive: int = Field(0, description="Number of positive headlines")
+    negative: int = Field(0, description="Number of negative headlines")
+    neutral: int = Field(0, description="Number of neutral headlines")
+    avg_score: float = Field(0.5, description="Average sentiment score (0=bearish, 1=bullish)")
+    label: str = Field("Neutral", description="Overall: Bullish / Bearish / Neutral / Mixed")
 
 
 class TechnicalIndicators(BaseModel):
@@ -130,6 +144,32 @@ class VolumeProfile(BaseModel):
     spike_days: int = Field(0, description="Number of spike days in last 20")
 
 
+class DenoisedTrend(BaseModel):
+    slope: float | None = Field(None, description="Denoised price velocity (% per day)")
+    slope_direction: str | None = Field(None, description="Rising / Falling / Flat")
+    acceleration: float | None = Field(None, description="Rate of velocity change (% per day²)")
+    momentum_exhaustion: bool = Field(False, description="True when denoised slope diverges from RSI")
+    exhaustion_type: str | None = Field(None, description="Bullish Exhaustion / Bearish Exhaustion")
+    denoised_prices: list[float] = Field(default_factory=list, description="Last 30 denoised closing prices (oldest first)")
+
+
+class ZScoreAnalysis(BaseModel):
+    zscore: float | None = Field(None, description="Current 20-day rolling Z-Score")
+    mean_20d: float | None = Field(None, description="20-day rolling mean price")
+    stddev_20d: float | None = Field(None, description="20-day rolling standard deviation")
+    signal: str | None = Field(None, description="Statistical signal")
+    reversal_probability: float | None = Field(None, description="Probability of mean reversion (0-100%)")
+
+
+class InferenceWeights(BaseModel):
+    technical_score: float = Field(50, description="Technical component (0-100) — 35% weight")
+    sentiment_score: float = Field(50, description="Sentiment component (0-100) — 25% weight")
+    analyst_score: float = Field(50, description="Analyst component (0-100) — 20% weight")
+    volume_score: float = Field(50, description="Volume component (0-100) — 20% weight")
+    composite_score: float = Field(50, description="Final weighted composite (0-100)")
+    composite_signal: str = Field("Neutral", description="Buy / Sell / Hold / Watch based on composite")
+
+
 class GPTInsight(BaseModel):
     actionable_insight: str = Field(..., description="GPT-4 actionable recommendation")
     confidence_score: int = Field(
@@ -152,10 +192,14 @@ class AnalysisResponse(BaseModel):
     bollinger_bands: BollingerBands | None = None
     obv_analysis: OBVAnalysis | None = None
     volume_profile: VolumeProfile | None = None
+    denoised_trend: DenoisedTrend | None = None
+    zscore_analysis: ZScoreAnalysis | None = None
+    inference_weights: InferenceWeights | None = None
     analyst_ratings: AnalystRating | None = None
     price_target: PriceTarget | None = None
     fear_greed: FearGreed
     news: list[NewsHeadline]
+    news_sentiment: NewsSentiment | None = None
     gpt_analysis: GPTInsight | None = None
     price_history: list[PricePoint] = Field(default_factory=list, description="Last 30 days of closing prices (oldest first)")
 
@@ -441,6 +485,200 @@ def calculate_volume_profile(daily_rows: list[dict[str, Any]]) -> VolumeProfile:
         return VolumeProfile()
 
 
+BULL_KEYWORDS = {
+    "surge", "soar", "rally", "gain", "beat", "upgrade", "rise", "jump",
+    "bull", "record", "high", "buy", "outperform", "breakout", "growth",
+}
+BEAR_KEYWORDS = {
+    "crash", "fall", "drop", "plunge", "sell", "downgrade", "cut", "loss",
+    "bear", "low", "miss", "warn", "risk", "decline", "slump", "fear",
+}
+
+
+def _savgol_smooth(prices: np.ndarray, window: int = 21, polyorder: int = 3) -> np.ndarray:
+    """Savitzky-Golay polynomial smoothing via numpy (no scipy dependency).
+    Computes convolution coefficients from the Vandermonde pseudo-inverse."""
+    n = len(prices)
+    if n < window:
+        window = n if n % 2 == 1 else n - 1
+    if window < polyorder + 2:
+        return prices.copy()
+    half = window // 2
+    x = np.arange(-half, half + 1, dtype=float)
+    A = np.vander(x, N=polyorder + 1, increasing=True)
+    smooth_coeffs = np.linalg.pinv(A)[0]
+    padded = np.pad(prices, half, mode="edge")
+    return np.convolve(padded, smooth_coeffs[::-1], mode="valid")
+
+
+def calculate_denoised_trend(
+    daily_rows: list[dict[str, Any]], rsi: float | None,
+) -> DenoisedTrend:
+    """Savitzky-Golay denoising to extract price velocity and momentum exhaustion."""
+    try:
+        ordered = [r["close"] for r in reversed(daily_rows)]
+        n = len(ordered)
+        if n < 30:
+            return DenoisedTrend()
+
+        prices = np.array(ordered, dtype=float)
+        smoothed = _savgol_smooth(prices)
+
+        recent = smoothed[-10:]
+        x10 = np.arange(10, dtype=float)
+        fit = np.polyfit(x10, recent, 1)
+        slope = float(fit[0])
+        slope_pct = (slope / float(prices[-1])) * 100 if prices[-1] > 0 else 0.0
+
+        accel_pct = 0.0
+        if n >= 30:
+            prev = smoothed[-20:-10]
+            prev_fit = np.polyfit(np.arange(10, dtype=float), prev, 1)
+            accel = slope - float(prev_fit[0])
+            accel_pct = (accel / float(prices[-1])) * 100 if prices[-1] > 0 else 0.0
+
+        if abs(slope_pct) < 0.05:
+            direction = "Flat"
+        elif slope_pct > 0:
+            direction = "Rising"
+        else:
+            direction = "Falling"
+
+        exhaustion = False
+        exhaustion_type = None
+        if rsi is not None:
+            if slope_pct > 0.1 and rsi > 65 and accel_pct < -0.01:
+                exhaustion = True
+                exhaustion_type = "Bullish Exhaustion"
+            elif slope_pct < -0.1 and rsi < 35 and accel_pct > 0.01:
+                exhaustion = True
+                exhaustion_type = "Bearish Exhaustion"
+
+        hist_len = min(30, n)
+        denoised_last = smoothed[-hist_len:].tolist()
+
+        return DenoisedTrend(
+            slope=round(slope_pct, 4),
+            slope_direction=direction,
+            acceleration=round(accel_pct, 4),
+            momentum_exhaustion=exhaustion,
+            exhaustion_type=exhaustion_type,
+            denoised_prices=[round(float(p), 2) for p in denoised_last],
+        )
+    except Exception as exc:
+        logger.warning("Denoised trend calculation failed: %s", exc)
+        return DenoisedTrend()
+
+
+def calculate_zscore(daily_rows: list[dict[str, Any]]) -> ZScoreAnalysis:
+    """20-day rolling Z-Score for statistical mean reversion signals."""
+    try:
+        ordered = [r["close"] for r in reversed(daily_rows)]
+        if len(ordered) < 20:
+            return ZScoreAnalysis()
+
+        window = ordered[-20:]
+        mean = sum(window) / 20
+        variance = sum((x - mean) ** 2 for x in window) / 20
+        stddev = variance ** 0.5
+
+        current = ordered[-1]
+        zscore = (current - mean) / stddev if stddev > 0 else 0.0
+
+        abs_z = abs(zscore)
+        reversal_prob = round(math.erf(abs_z / math.sqrt(2)) * 100, 1)
+
+        if zscore > 2.0:
+            signal = "Overbought — Pullback Likely (>2σ)"
+        elif zscore > 1.5:
+            signal = "Stretched — Watch for Reversal"
+        elif zscore < -2.0:
+            signal = "Oversold — Bounce Likely (>2σ)"
+        elif zscore < -1.5:
+            signal = "Compressed — Watch for Bounce"
+        else:
+            signal = "Normal Range"
+
+        return ZScoreAnalysis(
+            zscore=round(zscore, 3),
+            mean_20d=round(mean, 2),
+            stddev_20d=round(stddev, 2),
+            signal=signal,
+            reversal_probability=reversal_prob,
+        )
+    except Exception as exc:
+        logger.warning("Z-Score calculation failed: %s", exc)
+        return ZScoreAnalysis()
+
+
+def calculate_inference_weights(
+    technicals: TechnicalIndicators,
+    denoised: DenoisedTrend,
+    zscore: ZScoreAnalysis,
+    fear_greed: FearGreed,
+    news_sent: NewsSentiment,
+    analyst: AnalystRating,
+    obv: OBVAnalysis,
+    volume: VolumeProfile,
+) -> InferenceWeights:
+    """Pre-calculate the 4-pillar weighted inference scores."""
+    rsi_macd = technicals.score if technicals else 50
+    slope_score = 50.0
+    if denoised.slope is not None:
+        slope_score = max(0.0, min(100.0, 50 + denoised.slope * 25))
+
+    z_component = 50.0
+    if zscore.zscore is not None:
+        z_component = max(0.0, min(100.0, 50 - zscore.zscore * 20))
+
+    technical_score = rsi_macd * 0.40 + slope_score * 0.35 + z_component * 0.25
+
+    contrarian_fg = 100 - fear_greed.value
+    finbert_score = news_sent.avg_score * 100
+    sentiment_score = contrarian_fg * 0.60 + finbert_score * 0.40
+
+    analyst_score_val = float(analyst.score) if analyst else 50.0
+
+    vol_base = 50.0
+    if obv.divergence == "Accumulation":
+        vol_base = 80.0
+    elif obv.divergence == "Distribution":
+        vol_base = 20.0
+    elif obv.divergence == "Confirmation":
+        vol_base = 65.0 if obv.obv_trend == "Rising" else 35.0
+
+    if volume and volume.volume_ratio:
+        if volume.volume_ratio > 1.5 and obv.obv_trend == "Rising":
+            vol_base = min(100, vol_base + 12)
+        elif volume.volume_ratio > 1.5 and obv.obv_trend == "Falling":
+            vol_base = max(0, vol_base - 12)
+
+    composite = (
+        technical_score * 0.35
+        + sentiment_score * 0.25
+        + analyst_score_val * 0.20
+        + vol_base * 0.20
+    )
+
+    if composite >= 70:
+        sig = "Buy"
+    elif composite >= 55:
+        sig = "Hold"
+    elif composite >= 40:
+        sig = "Watch"
+    else:
+        sig = "Sell"
+
+    return InferenceWeights(
+        technical_score=round(technical_score, 1),
+        sentiment_score=round(sentiment_score, 1),
+        analyst_score=round(analyst_score_val, 1),
+        volume_score=round(vol_base, 1),
+        composite_score=round(composite, 1),
+        composite_signal=sig,
+    )
+
+
 def _yf_fetch_analyst_ratings(ticker: str) -> AnalystRating:
     try:
         stock = yf.Ticker(ticker.upper())
@@ -489,16 +727,36 @@ def _yf_fetch_price_target(ticker: str) -> PriceTarget:
     try:
         stock = yf.Ticker(ticker.upper())
         info = stock.info or {}
-        current = info.get("currentPrice") or info.get("regularMarketPrice")
+        
+        current = (
+            info.get("currentPrice") 
+            or info.get("regularMarketPrice") 
+            or info.get("previousClose")
+        )
+        
         daily_chg = info.get("regularMarketChange")
         daily_chg_pct = info.get("regularMarketChangePercent")
-        target_mean = info.get("targetMeanPrice")
-        target_high = info.get("targetHighPrice")
-        target_low = info.get("targetLowPrice")
+        
+        target_mean = (
+            info.get("targetMeanPrice")
+            or info.get("targetMedianPrice")
+            or info.get("recommendationMean")
+        )
+        target_high = (
+            info.get("targetHighPrice")
+            or info.get("targetMaxPrice")
+        )
+        target_low = (
+            info.get("targetLowPrice")
+            or info.get("targetMinPrice")
+        )
 
         upside = None
         if current and target_mean:
-            upside = round(((target_mean - current) / current) * 100, 2)
+            try:
+                upside = round(((target_mean - current) / current) * 100, 2)
+            except (TypeError, ZeroDivisionError):
+                pass
 
         return PriceTarget(
             current=round(float(current), 2) if current else None,
@@ -623,6 +881,117 @@ async def fetch_news(ticker: str, max_items: int = 10) -> list[NewsHeadline]:
     return await asyncio.to_thread(_yf_fetch_news, ticker.upper(), max_items)
 
 
+async def finbert_sentiment(headlines: list[NewsHeadline]) -> NewsSentiment:
+    """Run headlines through ProsusAI/finbert via HF Inference API."""
+    if not headlines:
+        return NewsSentiment()
+
+    titles = [h.title for h in headlines if h.title]
+    if not titles:
+        return NewsSentiment()
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if HF_API_TOKEN:
+        headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                FINBERT_URL,
+                json={"inputs": titles, "options": {"wait_for_model": True}},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            results = resp.json()
+
+        pos, neg, neu = 0, 0, 0
+        score_sum = 0.0
+
+        for i, result in enumerate(results):
+            if not isinstance(result, list) or not result:
+                continue
+
+            top = max(result, key=lambda x: x.get("score", 0))
+            label = top.get("label", "neutral").lower()
+            conf = top.get("score", 0)
+
+            if label == "positive":
+                pos += 1
+                score_sum += 0.5 + conf * 0.5
+            elif label == "negative":
+                neg += 1
+                score_sum += 0.5 - conf * 0.5
+            else:
+                neu += 1
+                score_sum += 0.5
+
+            if i < len(headlines):
+                headlines[i].sentiment = label
+                headlines[i].sentiment_score = round(conf, 3)
+
+        total = pos + neg + neu
+        avg = score_sum / total if total > 0 else 0.5
+
+        if pos > neg * 2:
+            overall = "Bullish"
+        elif neg > pos * 2:
+            overall = "Bearish"
+        elif pos > neg:
+            overall = "Slightly Bullish"
+        elif neg > pos:
+            overall = "Slightly Bearish"
+        elif pos == 0 and neg == 0:
+            overall = "Neutral"
+        else:
+            overall = "Mixed"
+
+        return NewsSentiment(
+            positive=pos, negative=neg, neutral=neu,
+            avg_score=round(avg, 3), label=overall,
+        )
+    except Exception as exc:
+        logger.warning("FinBERT sentiment analysis failed: %s — falling back to keyword method", exc)
+        return _keyword_sentiment_fallback(headlines)
+
+
+def _keyword_sentiment_fallback(headlines: list[NewsHeadline]) -> NewsSentiment:
+    """Fallback to keyword matching if FinBERT API is unavailable."""
+    pos, neg, neu = 0, 0, 0
+    for h in headlines:
+        title = h.title.lower()
+        if any(k in title for k in BULL_KEYWORDS):
+            pos += 1
+            h.sentiment = "positive"
+            h.sentiment_score = 0.7
+        elif any(k in title for k in BEAR_KEYWORDS):
+            neg += 1
+            h.sentiment = "negative"
+            h.sentiment_score = 0.7
+        else:
+            neu += 1
+            h.sentiment = "neutral"
+            h.sentiment_score = 0.5
+
+    total = max(pos + neg + neu, 1)
+    avg = (pos * 0.8 + neu * 0.5 + neg * 0.2) / total
+
+    if pos > neg * 2:
+        overall = "Bullish"
+    elif neg > pos * 2:
+        overall = "Bearish"
+    elif pos > neg:
+        overall = "Slightly Bullish"
+    elif neg > pos:
+        overall = "Slightly Bearish"
+    else:
+        overall = "Neutral"
+
+    return NewsSentiment(
+        positive=pos, negative=neg, neutral=neu,
+        avg_score=round(avg, 3), label=overall,
+    )
+
+
 async def fetch_stock_data(
     ticker: str,
 ) -> tuple[list[dict[str, Any]], list[NewsHeadline]]:
@@ -635,6 +1004,9 @@ async def fetch_stock_data(
 
 async def gpt_analysis(
     ticker: str,
+    weights: InferenceWeights,
+    denoised: DenoisedTrend,
+    zscore: ZScoreAnalysis,
     smas: MovingAverages,
     technicals: TechnicalIndicators,
     bollinger: BollingerBands,
@@ -642,6 +1014,7 @@ async def gpt_analysis(
     volume: VolumeProfile,
     analyst: AnalystRating,
     fear_greed: FearGreed,
+    news_sent: NewsSentiment,
     headlines: list[NewsHeadline],
 ) -> GPTInsight:
     if not OPENAI_API_KEY:
@@ -650,11 +1023,35 @@ async def gpt_analysis(
     client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
     news_text = "\n".join(
-        f"- {h.title} ({h.publisher})" for h in headlines
+        f"- [{h.sentiment or 'unknown'} {h.sentiment_score or 0:.0%}] {h.title} ({h.publisher})"
+        for h in headlines
     ) or "No recent headlines available."
 
     payload = {
         "ticker": ticker.upper(),
+        "inference_weights": {
+            "technical_score": weights.technical_score,
+            "sentiment_score": weights.sentiment_score,
+            "analyst_score": weights.analyst_score,
+            "volume_score": weights.volume_score,
+            "composite_score": weights.composite_score,
+            "composite_signal": weights.composite_signal,
+            "formula": "35% Technical + 25% Sentiment + 20% Analyst + 20% Volume",
+        },
+        "denoised_trend": {
+            "savitzky_golay_slope_pct_per_day": denoised.slope,
+            "slope_direction": denoised.slope_direction,
+            "acceleration_pct_per_day2": denoised.acceleration,
+            "momentum_exhaustion": denoised.momentum_exhaustion,
+            "exhaustion_type": denoised.exhaustion_type,
+        },
+        "zscore_20d": {
+            "value": zscore.zscore,
+            "mean": zscore.mean_20d,
+            "stddev": zscore.stddev_20d,
+            "signal": zscore.signal,
+            "reversal_probability_pct": zscore.reversal_probability,
+        },
         "moving_averages": {
             "sma_50": smas.sma_50,
             "sma_200": smas.sma_200,
@@ -663,44 +1060,39 @@ async def gpt_analysis(
         "technical_indicators": {
             "rsi_14": technicals.rsi_14,
             "rsi_signal": technicals.rsi_signal,
-            "macd": technicals.macd,
-            "macd_signal": technicals.macd_signal,
             "macd_histogram": technicals.macd_histogram,
             "macd_trend": technicals.macd_trend,
-            "overall_technical_signal": technicals.overall_signal,
         },
         "bollinger_bands": {
             "upper": bollinger.upper,
-            "middle": bollinger.middle,
             "lower": bollinger.lower,
             "bandwidth_pct": bollinger.bandwidth,
             "price_position": bollinger.position,
             "squeeze_detected": bollinger.squeeze,
         },
         "on_balance_volume": {
-            "obv_current": obv.obv_current,
             "obv_trend": obv.obv_trend,
             "price_trend_20d": obv.price_trend,
             "divergence": obv.divergence,
         },
         "volume_profile": {
-            "avg_volume_20d": volume.avg_volume_20d,
-            "latest_volume": volume.latest_volume,
             "volume_ratio": volume.volume_ratio,
             "volume_spike": volume.spike,
-            "spike_days_in_20": volume.spike_days,
         },
-        "analyst_ratings": {
-            "strong_buy": analyst.strong_buy,
-            "buy": analyst.buy,
-            "hold": analyst.hold,
-            "sell": analyst.sell,
-            "strong_sell": analyst.strong_sell,
+        "analyst_consensus": {
             "recommendation": analyst.recommendation,
+            "score": analyst.score,
         },
         "fear_and_greed": {
             "value": fear_greed.value,
             "label": fear_greed.label,
+        },
+        "finbert_news_sentiment": {
+            "positive_headlines": news_sent.positive,
+            "negative_headlines": news_sent.negative,
+            "neutral_headlines": news_sent.neutral,
+            "avg_score": news_sent.avg_score,
+            "overall_label": news_sent.label,
         },
         "recent_news_headlines": news_text,
     }
@@ -708,33 +1100,47 @@ async def gpt_analysis(
     system_prompt = (
         "You are a JSON-only response engine. Do not include markdown formatting "
         "or prose outside the JSON object.\n\n"
-        "Role: Senior Quantitative Analyst at a top-tier hedge fund.\n\n"
-        "You will receive a JSON object containing:\n"
-        "1. 50-day and 200-day Simple Moving Averages with crossover signal.\n"
-        "2. Technical indicators: RSI-14, MACD with trend direction.\n"
-        "3. Bollinger Bands (20, 2): upper/middle/lower band, bandwidth %, "
-        "price position relative to bands, and squeeze detection.\n"
-        "4. On-Balance Volume (OBV): trend direction, price trend, and divergence "
-        "(Accumulation = stealth buying, Distribution = smart money exiting).\n"
-        "5. Volume Profile: 20-day avg volume, latest volume ratio, spike detection.\n"
-        "6. Wall Street analyst ratings breakdown.\n"
-        "7. CNN Fear & Greed Index.\n"
-        "8. Recent news headlines.\n\n"
-        "Key rules for your analysis:\n"
-        "- Price at Lower Band + OBV Rising → Bullish Mean Reversion signal.\n"
-        "- Price at Upper Band + OBV Falling → Bearish Exhaustion signal.\n"
-        "- Bollinger Squeeze + dry volume → Breakout imminent, Watch closely.\n"
-        "- OBV rising while price flat/falling → Accumulation (smart money buying).\n"
-        "- OBV falling while price rising → Distribution (fake rally, likely reversal).\n"
-        "- Volume spike + price move = confirmation. Volume spike + no move = absorption.\n\n"
-        "Synthesize ALL signals and provide:\n"
-        "- Actionable Insight: Buy / Hold / Sell / Watch with explanation.\n"
-        "- Confidence Score: 0-100.\n\n"
+        "Role: Hardline Mathematical Quantitative Analyst. You operate on "
+        "statistically significant signals, not opinions. Every claim must be "
+        "anchored to a numerical threshold or mathematical relationship.\n\n"
+        "You will receive a pre-calculated inference payload with weighted scores:\n"
+        "1. INFERENCE WEIGHTS (pre-computed): Technical (35%), Sentiment (25%), "
+        "Analyst (20%), Volume (20%). The composite_score is your baseline — "
+        "adjust ±10 points max based on qualitative headline analysis.\n"
+        "2. DENOISED PRICE VELOCITY: Savitzky-Golay polynomial regression "
+        "(window=21, order=3) removes market noise. The slope (% per day) "
+        "represents true price velocity. If slope is positive but acceleration "
+        "is negative, the trend is mathematically decelerating.\n"
+        "3. 20-DAY Z-SCORE: Statistical distance from the rolling mean in σ. "
+        "|Z| > 2.0 = 95.4% statistical significance for mean reversion. "
+        "|Z| > 1.5 = 86.6% probability. This is your primary reversal signal.\n"
+        "4. Classical technicals: RSI-14, MACD, SMA crossovers, Bollinger Bands.\n"
+        "5. OBV divergence + volume confirmation.\n"
+        "6. FinBERT NLP Sentiment: Per-headline sentiment labels (positive/negative/neutral) "
+        "from ProsusAI/finbert transformer model. Aggregate avg_score 0-1 (0=bearish, 1=bullish).\n"
+        "7. Analyst consensus + Fear & Greed (contrarian-adjusted).\n\n"
+        "DECISION FRAMEWORK:\n"
+        "- Z-Score > +2.0 AND denoised slope decelerating → SELL "
+        "(mean reversion imminent, statistically significant).\n"
+        "- Z-Score < -2.0 AND OBV rising → BUY "
+        "(oversold with accumulation, 95% reversion probability).\n"
+        "- Denoised slope positive + acceleration positive + Z < 1.5 → BUY "
+        "(healthy trend with statistical room to run).\n"
+        "- Momentum Exhaustion detected → reversal is mathematically likely, "
+        "WATCH or counter-trade.\n"
+        "- Bollinger Squeeze + Z near 0 + dry volume → WATCH "
+        "(breakout imminent, wait for directional confirmation).\n"
+        "- OBV divergence overrides price action: Accumulation = stealth buying, "
+        "Distribution = smart money exiting.\n\n"
+        "Your reasoning MUST reference: 'Denoised Price Velocity', "
+        "'Statistical Significance', and specific Z-Score / slope values.\n\n"
         "Respond with ONLY this JSON:\n"
         "{\n"
-        '  "actionable_insight": "<Buy|Hold|Sell|Watch> — short explanation",\n'
+        '  "actionable_insight": "<Buy|Hold|Sell|Watch> — explanation citing '
+        'denoised velocity and Z-Score thresholds",\n'
         '  "confidence_score": <int 0-100>,\n'
-        '  "reasoning": "<2-3 sentence justification referencing specific indicators>"\n'
+        '  "reasoning": "<2-3 sentences. MUST reference denoised slope, Z-Score, '
+        'statistical significance, and weight contributions>"\n'
         "}"
     )
 
@@ -750,7 +1156,7 @@ async def gpt_analysis(
             {"role": "user", "content": user_message},
         ],
         response_format={"type": "json_object"},
-        temperature=0.4,
+        temperature=0.3,
         max_tokens=600,
     )
 
@@ -777,7 +1183,7 @@ async def gpt_analysis(
 async def root():
     return {
         "service": "MSA — Market Sentiment Analyzer",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "docs": "/docs",
     }
 
@@ -814,16 +1220,24 @@ async def analyze(
         fetch_price_target(ticker),
     )
 
+    news_sent = await finbert_sentiment(news)
+
     smas = calculate_smas(daily_rows)
     technicals = calculate_technicals(daily_rows)
     bb = calculate_bollinger(daily_rows)
     obv = calculate_obv(daily_rows)
     vol_profile = calculate_volume_profile(daily_rows)
+    denoised = calculate_denoised_trend(daily_rows, technicals.rsi_14)
+    zsc = calculate_zscore(daily_rows)
+    weights = calculate_inference_weights(
+        technicals, denoised, zsc, fg, news_sent, analyst, obv, vol_profile,
+    )
 
     gpt_result: GPTInsight | None = None
     try:
         gpt_result = await gpt_analysis(
-            ticker, smas, technicals, bb, obv, vol_profile, analyst, fg, news
+            ticker, weights, denoised, zsc,
+            smas, technicals, bb, obv, vol_profile, analyst, fg, news_sent, news,
         )
     except HTTPException:
         raise
@@ -847,10 +1261,14 @@ async def analyze(
         bollinger_bands=bb,
         obv_analysis=obv,
         volume_profile=vol_profile,
+        denoised_trend=denoised,
+        zscore_analysis=zsc,
+        inference_weights=weights,
         analyst_ratings=analyst,
         price_target=pt,
         fear_greed=fg,
         news=news,
+        news_sentiment=news_sent,
         gpt_analysis=gpt_result,
         price_history=history,
     )
@@ -893,13 +1311,6 @@ async def clear_all_cache():
     _analysis_cache.clear()
     return {"cleared": count}
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 if __name__ == "__main__":
     import uvicorn
