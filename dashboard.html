@@ -160,7 +160,7 @@
         <div class="p-4">
             <div class="glass-box p-3 rounded text-[10px] text-gray-500 font-mono text-center lg:text-left">
                 <div class="mb-1">STATUS: <span class="text-bull" id="api-status">READY</span></div>
-                <div>API: v2.0.0</div>
+                <div>API: v3.0.0</div>
             </div>
         </div>
     </aside>
@@ -493,6 +493,107 @@
                         </div>
                     </div>
 
+                    <!-- Quant Signals Row -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+                        <!-- Denoised Trend -->
+                        <div class="glass-box p-6 rounded-xl animate-fade-in" style="animation-delay: 0.32s;" data-tooltip="Savitzky-Golay Denoised Trend&#10;Polynomial smoothing (window=21, order=3)&#10;removes market noise to reveal true velocity.&#10;&#10;Slope: Denoised price change per day (%)&#10;Acceleration: Is the trend speeding up or slowing?&#10;&#10;Momentum Exhaustion:&#10;When slope diverges from RSI, the current&#10;move is running out of steam mathematically.">
+                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Denoised Trend <span class="text-[9px] text-gray-600 normal-case">(Savitzky-Golay)</span></h3>
+                            <div class="text-center py-3">
+                                <div class="text-3xl font-black font-mono" id="sg-slope">--</div>
+                                <div class="text-[10px] text-gray-500 uppercase tracking-widest mt-1">VELOCITY / DAY</div>
+                            </div>
+                            <div class="space-y-2 mt-2">
+                                <div class="flex justify-between text-xs font-mono">
+                                    <span class="text-gray-500">Direction</span>
+                                    <span class="font-bold" id="sg-direction">--</span>
+                                </div>
+                                <div class="flex justify-between text-xs font-mono">
+                                    <span class="text-gray-500">Acceleration</span>
+                                    <span class="font-bold" id="sg-accel">--</span>
+                                </div>
+                            </div>
+                            <div id="sg-exhaustion-badge" class="hidden mt-3 text-center">
+                                <span class="text-[10px] font-mono font-black px-3 py-1 rounded-full" id="sg-exhaustion-text"></span>
+                            </div>
+                        </div>
+
+                        <!-- Z-Score -->
+                        <div class="glass-box p-6 rounded-xl animate-fade-in" style="animation-delay: 0.32s;" data-tooltip="20-Day Statistical Z-Score&#10;How far the price is from its 20-day mean&#10;measured in standard deviations (σ).&#10;&#10;Z > +2.0: 95.4%% pullback probability&#10;Z > +1.5: 86.6%% — stretched&#10;Z < -1.5: 86.6%% — compressed&#10;Z < -2.0: 95.4%% bounce probability&#10;&#10;Based on normal distribution statistics.&#10;This is pure math, not opinion.">
+                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Z-Score <span class="text-[9px] text-gray-600 normal-case">(Mean Reversion)</span></h3>
+                            <div class="text-center py-3">
+                                <div class="text-4xl font-black font-mono" id="zscore-val">--</div>
+                                <div class="text-xs font-mono mt-2 font-bold" id="zscore-signal">--</div>
+                            </div>
+                            <div class="mt-3">
+                                <div class="flex justify-between text-[10px] font-mono text-gray-500 mb-1">
+                                    <span>Reversal Probability</span>
+                                    <span id="zscore-prob">--%</span>
+                                </div>
+                                <div class="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full transition-all duration-700" id="zscore-prob-bar" style="width:0%"></div>
+                                </div>
+                            </div>
+                            <div class="mt-3 grid grid-cols-2 gap-2 text-[10px] font-mono">
+                                <div class="bg-black/20 rounded p-2 border border-white/5 text-center">
+                                    <div class="text-gray-500">20d Mean</div>
+                                    <div class="text-white font-bold" id="zscore-mean">--</div>
+                                </div>
+                                <div class="bg-black/20 rounded p-2 border border-white/5 text-center">
+                                    <div class="text-gray-500">20d σ</div>
+                                    <div class="text-white font-bold" id="zscore-stddev">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Inference Weights -->
+                        <div class="glass-box p-6 rounded-xl animate-fade-in" style="animation-delay: 0.32s;" data-tooltip="Inference Weighting Engine&#10;Pre-calculated composite from 4 pillars:&#10;&#10;Technical (35%%): SG slope + Z-Score + RSI/MACD&#10;Sentiment (25%%): Fear & Greed (contrarian) + news NLP&#10;Analyst (20%%): Wall Street consensus score&#10;Volume (20%%): OBV divergence + volume spikes&#10;&#10;Composite > 70 = Buy&#10;55-70 = Hold, 40-55 = Watch, < 40 = Sell&#10;&#10;This score is fed directly to GPT as a baseline.">
+                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Inference Weights</h3>
+                            <div class="text-center py-2">
+                                <div class="text-3xl font-black font-mono" id="iw-composite">--</div>
+                                <div class="text-xs font-mono font-bold mt-1" id="iw-signal">--</div>
+                            </div>
+                            <div class="space-y-2.5 mt-3">
+                                <div>
+                                    <div class="flex justify-between text-[10px] font-mono mb-1">
+                                        <span class="text-gray-500">Technical <span class="text-gray-600">(35%)</span></span>
+                                        <span class="text-white" id="iw-tech">--</span>
+                                    </div>
+                                    <div class="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                                        <div class="h-full bg-blue-500 rounded-full transition-all duration-700" id="iw-tech-bar" style="width:0%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[10px] font-mono mb-1">
+                                        <span class="text-gray-500">Sentiment <span class="text-gray-600">(25%)</span></span>
+                                        <span class="text-white" id="iw-sent">--</span>
+                                    </div>
+                                    <div class="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                                        <div class="h-full bg-purple-500 rounded-full transition-all duration-700" id="iw-sent-bar" style="width:0%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[10px] font-mono mb-1">
+                                        <span class="text-gray-500">Analyst <span class="text-gray-600">(20%)</span></span>
+                                        <span class="text-white" id="iw-analyst">--</span>
+                                    </div>
+                                    <div class="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                                        <div class="h-full bg-cyan-500 rounded-full transition-all duration-700" id="iw-analyst-bar" style="width:0%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[10px] font-mono mb-1">
+                                        <span class="text-gray-500">Volume <span class="text-gray-600">(20%)</span></span>
+                                        <span class="text-white" id="iw-vol">--</span>
+                                    </div>
+                                    <div class="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                                        <div class="h-full bg-amber-500 rounded-full transition-all duration-700" id="iw-vol-bar" style="width:0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         
                         <div class="lg:col-span-2 glass-box p-6 rounded-xl animate-fade-in" style="animation-delay: 0.3s;" data-tooltip="Price Action Chart&#10;Real closing prices over the last 30 days.&#10;&#10;Green segments = price moving up&#10;Red segments = price moving down&#10;&#10;SMA 50 (green dashed): Short-term trend&#10;SMA 200 (amber dashed): Long-term trend">
@@ -509,6 +610,8 @@
                                     <span class="text-[10px] font-mono font-bold" style="color:#f59e0b">SMA 200</span>
                                     <span class="w-3 h-0.5 inline-block ml-2" style="border-top:2px dashed rgba(255,0,85,0.5)"></span>
                                     <span class="text-[10px] font-mono" style="color:rgba(255,0,85,0.6)">BB</span>
+                                    <span class="w-3 h-0.5 inline-block ml-2" style="border-top:2px dashed #a78bfa"></span>
+                                    <span class="text-[10px] font-mono font-bold" style="color:#a78bfa">SG</span>
                                 </div>
                             </div>
                             <div class="h-96 w-full">
@@ -536,8 +639,15 @@
                         </div>
                     </div>
 
-                    <div class="glass-box p-6 rounded-xl animate-fade-in" style="animation-delay: 0.5s;">
-                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Latest Intelligence</h3>
+                    <div class="glass-box p-6 rounded-xl animate-fade-in" style="animation-delay: 0.5s;" data-tooltip="FinBERT NLP News Sentiment&#10;Each headline analyzed by ProsusAI/finbert&#10;(financial BERT transformer model).&#10;&#10;Green dot = positive sentiment&#10;Red dot = negative sentiment&#10;Gray dot = neutral&#10;&#10;Aggregate score: 0 = very bearish, 1 = very bullish">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Latest Intelligence</h3>
+                            <div class="flex items-center gap-3" id="finbert-summary">
+                                <span class="text-[10px] font-mono text-gray-500">FinBERT:</span>
+                                <span class="text-xs font-mono font-bold" id="finbert-label">--</span>
+                                <span class="text-[10px] font-mono text-gray-500" id="finbert-breakdown">--</span>
+                            </div>
+                        </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="news-container"></div>
                     </div>
 
@@ -731,6 +841,7 @@
             document.getElementById('api-status').textContent = 'FETCHING';
             document.getElementById('api-status').className = 'text-warn';
 
+            showState('loading-state');
             startLoader(ticker);
             setSearchLoading(true);
 
@@ -891,8 +1002,8 @@
             }
 
             // Price Target
-            const pt = data.price_target;
-            if (pt && pt.target_mean) {
+            const pt = data.price_target || {};
+            if (pt.target_mean) {
                 document.getElementById('pt-mean').textContent = '$' + pt.target_mean.toFixed(2);
                 document.getElementById('pt-current').textContent = pt.current ? ('$' + pt.current.toFixed(2)) : '--';
                 document.getElementById('pt-low').textContent = pt.target_low ? ('$' + pt.target_low.toFixed(2)) : '--';
@@ -903,6 +1014,9 @@
                     const isUp = pt.upside_pct >= 0;
                     upEl.textContent = (isUp ? '+' : '') + pt.upside_pct.toFixed(2) + '%';
                     upEl.className = `text-sm font-bold font-mono ${isUp ? 'text-bull' : 'text-bear'}`;
+                    document.getElementById('pt-upside-wrap').classList.remove('hidden');
+                } else {
+                    document.getElementById('pt-upside-wrap').classList.add('hidden');
                 }
 
                 if (pt.current && pt.target_low && pt.target_high) {
@@ -910,6 +1024,12 @@
                     const pos = range > 0 ? ((pt.current - pt.target_low) / range) * 100 : 50;
                     document.getElementById('pt-marker').style.left = Math.max(2, Math.min(98, pos)) + '%';
                 }
+            } else {
+                document.getElementById('pt-mean').textContent = pt.current ? ('$' + pt.current.toFixed(2)) : 'N/A';
+                document.getElementById('pt-current').textContent = pt.current ? ('$' + pt.current.toFixed(2)) : '--';
+                document.getElementById('pt-low').textContent = 'N/A';
+                document.getElementById('pt-high').textContent = 'N/A';
+                document.getElementById('pt-upside-wrap').classList.add('hidden');
             }
 
             const gpt = data.gpt_analysis;
@@ -949,16 +1069,35 @@
                 document.getElementById('gpt-score').textContent = 'CONF: N/A';
             }
 
+            // --- FinBERT Sentiment ---
+            const nSent = data.news_sentiment;
+            if (nSent) {
+                const lbl = document.getElementById('finbert-label');
+                lbl.textContent = nSent.label;
+                const isBull = nSent.label.includes('Bullish');
+                const isBear = nSent.label.includes('Bearish');
+                lbl.className = 'text-xs font-mono font-bold ' + (isBull ? 'text-bull' : isBear ? 'text-bear' : 'text-gray-400');
+                document.getElementById('finbert-breakdown').textContent = `+${nSent.positive} / -${nSent.negative} / ~${nSent.neutral}`;
+            }
+
             const newsContainer = document.getElementById('news-container');
             let newsHTML = '';
             data.news.slice(0, 6).forEach(item => {
                 const pub = item.publisher || 'Unknown';
                 const time = item.published ? new Date(item.published).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                const sent = item.sentiment || 'neutral';
+                const sentDot = sent === 'positive' ? 'bg-bull' : sent === 'negative' ? 'bg-bear' : 'bg-gray-500';
+                const sentLabel = sent === 'positive' ? 'text-bull' : sent === 'negative' ? 'text-bear' : 'text-gray-500';
+                const conf = item.sentiment_score != null ? (item.sentiment_score * 100).toFixed(0) + '%' : '';
                 newsHTML += `
                     <a href="${item.link || '#'}" target="_blank" rel="noopener" class="block bg-black/20 p-4 rounded-lg border border-white/5 hover:border-bull/50 transition group">
                         <h4 class="text-sm font-bold text-gray-200 group-hover:text-bull transition line-clamp-2">${item.title}</h4>
                         <div class="mt-2 flex justify-between items-center">
-                            <span class="text-xs text-gray-500 font-mono">${pub}</span>
+                            <div class="flex items-center gap-2">
+                                <span class="w-1.5 h-1.5 rounded-full ${sentDot}"></span>
+                                <span class="text-[10px] font-mono ${sentLabel}">${sent} ${conf}</span>
+                                <span class="text-xs text-gray-500 font-mono ml-1">${pub}</span>
+                            </div>
                             <span class="text-[10px] text-gray-600 font-mono">${time}</span>
                         </div>
                     </a>
@@ -1016,6 +1155,90 @@
 
                 document.getElementById('vol-spike-days').textContent = vol.spike_days || '0';
                 document.getElementById('vol-spike-badge').classList.toggle('hidden', !vol.spike);
+            }
+
+            // --- Denoised Trend ---
+            const sg = data.denoised_trend;
+            if (sg) {
+                const slopeEl = document.getElementById('sg-slope');
+                if (sg.slope != null) {
+                    slopeEl.textContent = (sg.slope >= 0 ? '+' : '') + sg.slope.toFixed(3) + '%';
+                    slopeEl.className = 'text-3xl font-black font-mono ' + (sg.slope > 0.05 ? 'text-bull' : sg.slope < -0.05 ? 'text-bear' : 'text-gray-300');
+                }
+                const dirEl = document.getElementById('sg-direction');
+                dirEl.textContent = sg.slope_direction || 'N/A';
+                dirEl.className = 'font-bold ' + (sg.slope_direction === 'Rising' ? 'text-bull' : sg.slope_direction === 'Falling' ? 'text-bear' : 'text-gray-300');
+
+                const accelEl = document.getElementById('sg-accel');
+                if (sg.acceleration != null) {
+                    accelEl.textContent = (sg.acceleration >= 0 ? '+' : '') + sg.acceleration.toFixed(4);
+                    accelEl.className = 'font-bold ' + (sg.acceleration > 0 ? 'text-bull' : sg.acceleration < 0 ? 'text-bear' : 'text-gray-300');
+                }
+
+                if (sg.momentum_exhaustion && sg.exhaustion_type) {
+                    const badge = document.getElementById('sg-exhaustion-badge');
+                    badge.classList.remove('hidden');
+                    const txt = document.getElementById('sg-exhaustion-text');
+                    const isBullExh = sg.exhaustion_type === 'Bullish Exhaustion';
+                    txt.textContent = '\u26A0\uFE0F ' + sg.exhaustion_type.toUpperCase();
+                    txt.className = 'text-[10px] font-mono font-black px-3 py-1 rounded-full animate-pulse ' +
+                        (isBullExh ? 'bg-bear/20 text-bear border border-bear/30' : 'bg-bull/20 text-bull border border-bull/30');
+                } else {
+                    document.getElementById('sg-exhaustion-badge').classList.add('hidden');
+                }
+            }
+
+            // --- Z-Score ---
+            const zs = data.zscore_analysis;
+            if (zs) {
+                const zsEl = document.getElementById('zscore-val');
+                if (zs.zscore != null) {
+                    zsEl.textContent = (zs.zscore >= 0 ? '+' : '') + zs.zscore.toFixed(3);
+                    const isHigh = zs.zscore > 1.5;
+                    const isLow = zs.zscore < -1.5;
+                    zsEl.className = 'text-4xl font-black font-mono ' + (isHigh ? 'text-bear' : isLow ? 'text-bull' : 'text-gray-300');
+                }
+
+                const sigEl = document.getElementById('zscore-signal');
+                sigEl.textContent = zs.signal || 'Normal Range';
+                const absZ = Math.abs(zs.zscore || 0);
+                sigEl.className = 'text-xs font-mono font-bold mt-2 ' + (absZ > 2 ? (zs.zscore > 0 ? 'text-bear' : 'text-bull') : absZ > 1.5 ? 'text-warn' : 'text-gray-400');
+
+                const prob = zs.reversal_probability || 0;
+                document.getElementById('zscore-prob').textContent = prob.toFixed(1) + '%';
+                const probBar = document.getElementById('zscore-prob-bar');
+                setTimeout(() => { probBar.style.width = Math.min(prob, 100) + '%'; }, 100);
+                probBar.className = 'h-full rounded-full transition-all duration-700 ' +
+                    (prob > 90 ? 'bg-bear' : prob > 70 ? 'bg-warn' : prob > 50 ? 'bg-gray-400' : 'bg-gray-600');
+
+                document.getElementById('zscore-mean').textContent = zs.mean_20d != null ? '$' + zs.mean_20d.toFixed(2) : 'N/A';
+                document.getElementById('zscore-stddev').textContent = zs.stddev_20d != null ? '$' + zs.stddev_20d.toFixed(2) : 'N/A';
+            }
+
+            // --- Inference Weights ---
+            const iw = data.inference_weights;
+            if (iw) {
+                const compEl = document.getElementById('iw-composite');
+                compEl.textContent = iw.composite_score.toFixed(1);
+                compEl.className = 'text-3xl font-black font-mono ' + (iw.composite_score >= 60 ? 'text-bull' : iw.composite_score <= 40 ? 'text-bear' : 'text-gray-300');
+
+                const iwSig = document.getElementById('iw-signal');
+                iwSig.textContent = iw.composite_signal;
+                iwSig.className = 'text-xs font-mono font-bold mt-1 ' +
+                    (iw.composite_signal === 'Buy' ? 'text-bull' :
+                     iw.composite_signal === 'Sell' ? 'text-bear' :
+                     iw.composite_signal === 'Watch' ? 'text-warn' : 'text-gray-400');
+
+                setTimeout(() => {
+                    document.getElementById('iw-tech').textContent = iw.technical_score.toFixed(1);
+                    document.getElementById('iw-tech-bar').style.width = iw.technical_score + '%';
+                    document.getElementById('iw-sent').textContent = iw.sentiment_score.toFixed(1);
+                    document.getElementById('iw-sent-bar').style.width = iw.sentiment_score + '%';
+                    document.getElementById('iw-analyst').textContent = iw.analyst_score.toFixed(1);
+                    document.getElementById('iw-analyst-bar').style.width = iw.analyst_score + '%';
+                    document.getElementById('iw-vol').textContent = iw.volume_score.toFixed(1);
+                    document.getElementById('iw-vol-bar').style.width = iw.volume_score + '%';
+                }, 200);
             }
 
             // Update compare link with current ticker
@@ -1109,6 +1332,16 @@
                         pointRadius: 0,
                         fill: '-1',
                         backgroundColor: 'rgba(136,136,136,0.05)'
+                    },
+                    {
+                        label: 'SG Trend',
+                        data: (data.denoised_trend && data.denoised_trend.denoised_prices && data.denoised_trend.denoised_prices.length === numPoints) ? data.denoised_trend.denoised_prices : [],
+                        borderColor: '#a78bfa',
+                        borderWidth: 2.5,
+                        borderDash: [6, 3],
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0.6
                     }]
                 },
                 options: {
@@ -1130,15 +1363,21 @@
         });
 
         // Auto-run if ticker is in the URL (?ticker=AAPL)
-        const params = new URLSearchParams(window.location.search);
-        const urlTicker = (params.get('ticker') || '').trim();
-        if (urlTicker) {
-            document.getElementById('ticker-input').value = urlTicker.toUpperCase();
-            runAnalysis(urlTicker);
+        function checkUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            const urlTicker = (params.get('ticker') || '').trim();
+            if (urlTicker) {
+                document.getElementById('ticker-input').value = urlTicker.toUpperCase();
+                runAnalysis(urlTicker);
+            }
+        }
+
+        // Run on DOM ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', checkUrlParams);
+        } else {
+            checkUrlParams();
         }
     </script>
-    
-    <script src="script.js"></script>
-
 </body>
 </html>
