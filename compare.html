@@ -565,13 +565,23 @@
                 const gptB = dataB.gpt_analysis || {};
                 const smaA = dataA.moving_averages || {};
                 const smaB = dataB.moving_averages || {};
+                const sgA = dataA.denoised_trend || {};
+                const sgB = dataB.denoised_trend || {};
+                const zsA = dataA.zscore_analysis || {};
+                const zsB = dataB.zscore_analysis || {};
+                const iwA = dataA.inference_weights || {};
+                const iwB = dataB.inference_weights || {};
+                const nsA = dataA.news_sentiment || {};
+                const nsB = dataB.news_sentiment || {};
 
-                // Radar Chart
-                const radarLabels = ['AI Confidence', 'Technicals', 'Analyst', 'Upside %', 'Volume'];
+                // Radar Chart (7 dimensions now)
+                const radarLabels = ['AI Conf', 'Technicals', 'Analyst', 'Composite', 'Sentiment', 'Upside %', 'Volume'];
                 const radarA = [
                     gptA.confidence_score || 0,
                     techA.score || 50,
                     analA.score || 50,
+                    iwA.composite_score || 50,
+                    (nsA.avg_score || 0.5) * 100,
                     Math.max(0, Math.min(100, (ptA.upside_pct || 0) + 50)),
                     Math.min(100, (volA.volume_ratio || 1) * 40)
                 ];
@@ -579,6 +589,8 @@
                     gptB.confidence_score || 0,
                     techB.score || 50,
                     analB.score || 50,
+                    iwB.composite_score || 50,
+                    (nsB.avg_score || 0.5) * 100,
                     Math.max(0, Math.min(100, (ptB.upside_pct || 0) + 50)),
                     Math.min(100, (volB.volume_ratio || 1) * 40)
                 ];
@@ -682,6 +694,33 @@
 
                 addRowText('Fear & Greed', dataA.fear_greed.value + ' (' + dataA.fear_greed.label + ')', dataB.fear_greed.value + ' (' + dataB.fear_greed.label + ')', 'text-gray-300', 'text-gray-300');
 
+                // --- New Quant Signals ---
+                addRow('Composite Score', fmt(iwA.composite_score), fmt(iwB.composite_score));
+
+                const sgSlopeA = sgA.slope != null ? (sgA.slope >= 0 ? '+' : '') + sgA.slope.toFixed(3) + '%' : 'N/A';
+                const sgSlopeB = sgB.slope != null ? (sgB.slope >= 0 ? '+' : '') + sgB.slope.toFixed(3) + '%' : 'N/A';
+                const sgColA = sgA.slope_direction === 'Rising' ? 'text-bull font-bold' : sgA.slope_direction === 'Falling' ? 'text-bear font-bold' : 'text-gray-300';
+                const sgColB = sgB.slope_direction === 'Rising' ? 'text-bull font-bold' : sgB.slope_direction === 'Falling' ? 'text-bear font-bold' : 'text-gray-300';
+                addRowText('SG Velocity', sgSlopeA, sgSlopeB, sgColA, sgColB);
+
+                const zsValA = zsA.zscore != null ? (zsA.zscore >= 0 ? '+' : '') + zsA.zscore.toFixed(3) : 'N/A';
+                const zsValB = zsB.zscore != null ? (zsB.zscore >= 0 ? '+' : '') + zsB.zscore.toFixed(3) : 'N/A';
+                const zsColA = zsA.zscore > 1.5 ? 'text-bear font-bold' : zsA.zscore < -1.5 ? 'text-bull font-bold' : 'text-gray-300';
+                const zsColB = zsB.zscore > 1.5 ? 'text-bear font-bold' : zsB.zscore < -1.5 ? 'text-bull font-bold' : 'text-gray-300';
+                addRowText('Z-Score (20d)', zsValA, zsValB, zsColA, zsColB);
+
+                const exhA = sgA.momentum_exhaustion ? '⚠️ ' + (sgA.exhaustion_type || '') : 'None';
+                const exhB = sgB.momentum_exhaustion ? '⚠️ ' + (sgB.exhaustion_type || '') : 'None';
+                const exhColA = sgA.momentum_exhaustion ? 'text-warn font-bold' : 'text-gray-500';
+                const exhColB = sgB.momentum_exhaustion ? 'text-warn font-bold' : 'text-gray-500';
+                addRowText('Exhaustion', exhA, exhB, exhColA, exhColB);
+
+                const fbLabelA = nsA.label || 'N/A';
+                const fbLabelB = nsB.label || 'N/A';
+                const fbColA = fbLabelA.includes('Bullish') ? 'text-bull font-bold' : fbLabelA.includes('Bearish') ? 'text-bear font-bold' : 'text-gray-300';
+                const fbColB = fbLabelB.includes('Bullish') ? 'text-bull font-bold' : fbLabelB.includes('Bearish') ? 'text-bear font-bold' : 'text-gray-300';
+                addRowText('FinBERT NLP', fbLabelA, fbLabelB, fbColA, fbColB);
+
                 document.getElementById('comparison-rows').innerHTML = rows;
 
                 // Overall Score Bar
@@ -754,6 +793,23 @@
                 const upWinner = upA >= upB ? a : b;
                 const upWinCol = upWinner === a ? 'bull' : 'indigo-400';
                 goals.push({ icon: '🎯', title: 'More Upside Potential?', pick: upWinner, color: upWinCol, reason: `Analysts see ${Math.max(upA, upB).toFixed(1)}% upside on ${upWinner} vs ${Math.min(upA, upB).toFixed(1)}% on the other.` });
+
+                // Quant Composite
+                const compA = iwA.composite_score || 50, compB = iwB.composite_score || 50;
+                const compWinner = compA >= compB ? a : b;
+                const compWinCol = compWinner === a ? 'bull' : 'indigo-400';
+                goals.push({ icon: '🧮', title: 'Stronger Quant Signal?', pick: compWinner, color: compWinCol, reason: `Inference composite ${Math.max(compA, compB).toFixed(1)} vs ${Math.min(compA, compB).toFixed(1)} (35% tech + 25% sentiment + 20% analyst + 20% volume).` });
+
+                // FinBERT Sentiment
+                const fbA = nsA.avg_score || 0.5, fbB = nsB.avg_score || 0.5;
+                if (Math.abs(fbA - fbB) > 0.1) {
+                    const fbWinner = fbA > fbB ? a : b;
+                    const fbWinCol = fbWinner === a ? 'bull' : 'indigo-400';
+                    const fbLoser = fbWinner === a ? b : a;
+                    const fbWinLabel = fbWinner === a ? nsA.label : nsB.label;
+                    const fbLoseLabel = fbWinner === a ? nsB.label : nsA.label;
+                    goals.push({ icon: '🧠', title: 'Better News Sentiment?', pick: fbWinner, color: fbWinCol, reason: `FinBERT reads ${fbWinner} headlines as ${fbWinLabel}. ${fbLoser} reads as ${fbLoseLabel}.` });
+                }
 
                 // Render goal cards
                 const goalCards = document.getElementById('goal-cards');
